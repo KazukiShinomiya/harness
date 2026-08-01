@@ -23,9 +23,7 @@
 1. 実セッションでフックが発火し、`ask` が確認ダイアログとして表示されるところまで確認する。
    スクリプト単体の検証は済んでいるが、実セッションでの表示は未確認のまま。
 2. `userConfig` の `multiple: true` がフック環境変数へどう直列化されるか実測する。
-3. `~/dotfiles/.claude/settings.json` の drift チェックを修正する（下記メモ参照）。
-   dotfiles は `behind 10` のため、着手前に `git -C ~/dotfiles pull` が要る。
-4. 実セッションで確認が取れたら、グローバル側の `PreToolUse` と SESSION_STATE 注入分を削除する。
+3. 実セッションで確認が取れたら、グローバル側の `PreToolUse` と SESSION_STATE 注入分を削除する。
 
 ## 決定事項・メモ
 
@@ -33,7 +31,8 @@
   判定器は `guard.sh <判定器名>` 経由で呼び、**exit 2 を返さない**（ブロック扱いになるため）。
 - **強制力は hooks にしか置けない。** プラグインの `settings.json` は `agent` と
   `subagentStatusLine` の 2 キーのみ。`permissions.deny` は配布できない。
-- **drift チェックが空振りしている。** `~/.claude/settings.json` は
-  `~/dotfiles/.claude/settings.json` への symlink なので、両者の sha256 は常に一致する。
-  SessionStart の drift 警告は原理的に発火しない。比較をやめるか symlink を解くかの判断が要る。
+- **dotfiles の drift チェックは設計どおり機能している。** `setup.sh` は symlink 運用が正規で
+  （`settings.machine.json` を持つ機械だけ実体コピー）、symlink が生きている間に両者が一致するのは
+  drift が無いという事実の反映であって検出漏れではない。symlink が外れて実体ファイルに
+  置き換わった時に sha256 比較が正しく検出する。**一度これを「空振りするバグ」と誤断したので記録に残す。**
 - v2.1.220 の validator は `metadata.pluginRoot` による source 短縮形を拒否する。
