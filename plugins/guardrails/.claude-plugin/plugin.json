@@ -14,6 +14,12 @@
       "description": "既定パターンに加えて確認を挟みたい部分文字列（プロジェクト固有の deploy コマンド等）。",
       "multiple": true
     },
+    "protected_paths": {
+      "type": "string",
+      "title": "追加の保護パス",
+      "description": "既定に加えて書き込み前に確認したいパスの glob（例: config/secrets.yml）。",
+      "multiple": true
+    },
     "decision": {
       "type": "string",
       "title": "検出時の挙動",

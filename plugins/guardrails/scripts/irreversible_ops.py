@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Bash コマンドが不可逆操作かを判定し、該当すれば PreToolUse の決定を stdout へ出す。
+"""Bash コマンドが不可逆操作かを判定する。
 
-契約は guard.sh 側のコメントを参照。異常時は例外を上げて非 0 で終了し、
-ラッパーに fail-safe（ask）を任せる。
+部分文字列一致ではなくトークン境界で照合する。`echo "git push はまだしない"` の
+ように、引用符の中にたまたまパターンが現れるだけの文字列で発火しないようにするため。
 """
 
 import json
-import os
+import shlex
 import sys
 
-# 既存のグローバル settings.json フックから移植した既定パターン。
+import _common
+
+# 既存のグローバル settings.json のフックから移植した既定パターン。
+# 空白区切りはトークン列として扱い、連続一致で判定する。
 DEFAULT_PATTERNS = (
     "git push",
     "git commit",
@@ -29,37 +32,22 @@ REASON = (
 )
 
 
-def extra_patterns():
-    """userConfig の extra_patterns を環境変数から読む。
-
-    multiple: true の値がどう直列化されるかは未検証のため、JSON 配列・改行区切り・
-    カンマ区切りのいずれでも受けられるようにしてある。
-    """
-    raw = os.environ.get("CLAUDE_PLUGIN_OPTION_EXTRA_PATTERNS", "").strip()
-    if not raw:
-        return []
-    if raw.startswith("["):
-        try:
-            return [str(x) for x in json.loads(raw)]
-        except json.JSONDecodeError:
-            pass
-    sep = "\n" if "\n" in raw else ","
-    return [p.strip() for p in raw.split(sep) if p.strip()]
+def contains_sequence(tokens, needle):
+    """tokens の中に needle が連続して現れるか。"""
+    if not needle:
+        return False
+    span = len(needle)
+    return any(tokens[i : i + span] == needle for i in range(len(tokens) - span + 1))
 
 
-def decision():
-    value = os.environ.get("CLAUDE_PLUGIN_OPTION_DECISION", "ask").strip().lower()
-    return value if value in ("ask", "deny") else "ask"
-
-
-def find_hit(command, patterns):
+def find_hit(tokens, patterns):
     for pattern in patterns:
-        if pattern in command:
+        if contains_sequence(tokens, shlex.split(pattern)):
             return pattern
-    # 文字列一致では拾えない複合形。
-    if "docker compose" in command and " up" in command:
+    # トークン列だけでは表せない複合形。
+    if contains_sequence(tokens, ["docker", "compose"]) and "up" in tokens:
         return "docker compose up"
-    if "--build" in command:
+    if "--build" in tokens:
         return "--build"
     return None
 
@@ -70,20 +58,14 @@ def main():
     if not command:
         return
 
-    hit = find_hit(command, list(DEFAULT_PATTERNS) + extra_patterns())
+    # 解釈できないコマンドは判定を諦める。非 0 で終了し guard.sh に ask を任せる。
+    tokens = shlex.split(command)
+
+    hit = find_hit(tokens, list(DEFAULT_PATTERNS) + _common.option_list("extra_patterns"))
     if hit is None:
         return  # 決定なし。通常の権限フローへ。
 
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": decision(),
-                "permissionDecisionReason": REASON.format(hit=hit),
-            }
-        },
-        sys.stdout,
-    )
+    _common.emit(REASON.format(hit=hit))
 
 
 if __name__ == "__main__":

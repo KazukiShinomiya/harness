@@ -6,7 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard.sh irreversible_ops.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard.sh protected_paths.py",
             "timeout": 10
           }
         ]
