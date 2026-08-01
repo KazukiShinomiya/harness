@@ -32,6 +32,32 @@ claude plugin validate ~/repos/harness/plugins/session-harness
 なおドキュメントには `metadata.pluginRoot` を置けば `"source": "guardrails"` と短縮できるとあるが、
 v2.1.220 の validator はこれを `Invalid input` で弾く。`"./plugins/guardrails"` と明示している。
 
+## 実セッションでの検証手順
+
+```bash
+cd ~/repos/harness
+claude --plugin-dir ~/repos/harness/plugins/guardrails
+```
+
+`/hooks` を開くと `Plugin Hooks` として 2 件（`Bash` と `Edit|Write|NotebookEdit`）が並ぶ。
+
+| # | 指示 | 期待 |
+|---|---|---|
+| 1 | `/tmp/probe/.env` に `FOO=bar` と書かせる | `guardrails: protected path (.env): ...` |
+| 2 | `git -C /tmp/probe commit --dry-run` を実行させる | `guardrails: irreversible op (git commit): ...` |
+| 3 | `ls -la /tmp` を実行させる | 何も出ない |
+
+1 が最もクリーンな検証になる。`Edit`/`Write` を見ているのは guardrails だけで、
+移行前のグローバルフックは `Bash` しか matcher に持たないため、確認が出れば guardrails 由来と確定できる。
+2 は両方が発火して二重になるが、文言が違う（グローバル側は `irreversible op (commit/push/deploy/reset/rm):`）ので見分けられる。
+
+### 落とし穴
+
+- **`echo` や `true` で試さない。** 組み込みの read-only コマンドなので、フックの結果に関わらず確認が出ない
+- **`/mnt/e` で起動しない。** file watcher が効かず、編集が `/reload-plugins` に拾われない
+- 起動時に `userConfig` の入力を求められるかを見ておく。求められるなら `extra_patterns` に
+  値を 2 つ入れることで、`multiple: true` の直列化形式（TODO）もそのまま確認できる
+
 ## インストール
 
 ```bash
