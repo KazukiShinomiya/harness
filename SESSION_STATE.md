@@ -20,10 +20,17 @@
 
 ## 次の行動
 
-1. 実セッションでフックが発火し、`ask` が確認ダイアログとして表示されるところまで確認する。
-   スクリプト単体の検証は済んでいるが、実セッションでの表示は未確認のまま。
-2. `userConfig` の `multiple: true` がフック環境変数へどう直列化されるか実測する。
-3. 実セッションで確認が取れたら、グローバル側の `PreToolUse` と SESSION_STATE 注入分を削除する。
+**再起動直後にこれをやる。** `guardrails@harness` はインストール済み（user スコープ、enabled）。
+
+1. Bash を 1 回打ち、`/tmp/claude-1000/-mnt-e-work-harness/92399dcc-beee-4a56-98f8-42ace5caff1f/scratchpad/guard-probe.log`
+   に行が増えるか見る。増えればフックが発火している。
+   - 増えた場合: `/tmp/probe/.env` への書き込みで `ask` が画面に出るかまで確認する。
+   - 増えない場合: 再起動でも解決しないということ。`/plugin` の Errors タブを見る。
+2. 発火が確認できたら、インストール先の診断ログを消す（下記メモ参照）。
+3. `claude plugin install guardrails@harness --config extra_patterns=A --config extra_patterns=B` の形で
+   `multiple: true` の直列化形式を実測する。
+4. 全て確認できたら、グローバル側（`~/dotfiles/.claude/settings.json`）の `PreToolUse` と
+   SESSION_STATE 注入分を削除し、dotfiles をコミットする。
 
 ## 決定事項・メモ
 
@@ -36,3 +43,11 @@
   drift が無いという事実の反映であって検出漏れではない。symlink が外れて実体ファイルに
   置き換わった時に sha256 比較が正しく検出する。**一度これを「空振りするバグ」と誤断したので記録に残す。**
 - v2.1.220 の validator は `metadata.pluginRoot` による source 短縮形を拒否する。
+- **`/reload-plugins` はプラグインのフックを実行中セッションへ適用しないらしい。** `2 hooks` と
+  報告され `plugin list` でも `enabled` なのに、`guard.sh` に仕込んだログが一度も書かれなかった
+  （手動実行では書かれるのでログ機構自体は正常）。再起動で解決するかは未確認。
+- **インストール先に診断ログを仕込んである。** 確認が済んだら消すこと。
+  `~/.claude/plugins/cache/harness/guardrails/0.1.0/scripts/guard.sh` の `set -u` 直後の 1 行。
+  リポジトリ側のソースには入っていない。
+- `~/.claude/settings.json` は dotfiles への symlink なので、プラグインのインストールで
+  **dotfiles 側に未コミット変更が入っている**。移行完了時にまとめてコミットする。
