@@ -1,0 +1,31 @@
+{
+  "name": "harness",
+  "owner": {
+    "name": "k1981"
+  },
+  "metadata": {
+    "description": "ハーネスとガードレールを各プロジェクトへ撒くためのプラグイン集"
+  },
+  "plugins": [
+    {
+      "name": "guardrails",
+      "source": "./plugins/guardrails",
+      "description": "不可逆操作（commit/push/reset/rm 等）の前に確認を強制する PreToolUse ガードレール",
+      "version": "0.1.0",
+      "author": {
+        "name": "k1981"
+      },
+      "keywords": ["guardrails", "safety", "hooks"]
+    },
+    {
+      "name": "session-harness",
+      "source": "./plugins/session-harness",
+      "description": "SESSION_STATE.md によるセッション継続運用のハーネス",
+      "version": "0.1.0",
+      "author": {
+        "name": "k1981"
+      },
+      "keywords": ["harness", "session", "workflow"]
+    }
+  ]
+}

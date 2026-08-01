@@ -1,0 +1,24 @@
+{
+  "name": "guardrails",
+  "description": "不可逆操作（commit/push/reset/rm 等）の前に確認を強制する PreToolUse ガードレール",
+  "version": "0.1.0",
+  "author": {
+    "name": "k1981"
+  },
+  "license": "MIT",
+  "keywords": ["guardrails", "safety", "hooks"],
+  "userConfig": {
+    "extra_patterns": {
+      "type": "string",
+      "title": "追加の確認対象パターン",
+      "description": "既定パターンに加えて確認を挟みたい部分文字列（プロジェクト固有の deploy コマンド等）。",
+      "multiple": true
+    },
+    "decision": {
+      "type": "string",
+      "title": "検出時の挙動",
+      "description": "ask（確認ダイアログ）または deny（即ブロック）。既定は ask。",
+      "default": "ask"
+    }
+  }
+}

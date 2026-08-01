@@ -1,0 +1,18 @@
+{
+  "name": "session-harness",
+  "description": "SESSION_STATE.md によるセッション継続運用のハーネス",
+  "version": "0.1.0",
+  "author": {
+    "name": "k1981"
+  },
+  "license": "MIT",
+  "keywords": ["harness", "session", "workflow"],
+  "userConfig": {
+    "state_file": {
+      "type": "string",
+      "title": "状態ファイル名",
+      "description": "セッション開始時に読み込むファイル名。プロジェクトルートからの相対パス。",
+      "default": "SESSION_STATE.md"
+    }
+  }
+}
