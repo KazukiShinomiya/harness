@@ -39,6 +39,18 @@
 公式ドキュメント（permissions の "Extend permissions with hooks"）は `ask` について
 "force a prompt" と書いており、**観測は仕様と食い違う**。v2.1.220。
 
+**さらにフック固有の問題でもないと確定した。** `permissions` の `ask` ルール（設定側）でも
+同じことが起きる。対照実験:
+
+| 設定 | 投入したルール | 結果 |
+|---|---|---|
+| `permissions.deny` | `Bash(touch:*)` | **即ブロック**。設定が生きている証拠（再起動不要で反映） |
+| `permissions.ask` | `Bash(rm:*)` | **確認が出ず素通し** |
+
+同じファイルの `deny` が効いている以上「設定が読まれていない」では説明できない。
+壊れているのは **`ask` という経路そのもの**。**この環境で確実に止められるのは
+`deny` と git 層だけ。** 検証後、`~/.claude/settings.json` はバイト単位で復元済み。
+
 `CLAUDE_CODE_CHILD_SESSION=1` は容疑者から外れた。claude 本体（pid）の環境にも親 zsh にも
 存在せず、Claude Code が Bash ツールの子プロセスへ注入しているマーカーにすぎない。
 
@@ -84,10 +96,12 @@
 3. **自己診断を実セッションで確認する。** `~/repos/harness` から起動し直し、
    起動時に `guardrails: 有効（...）` が Claude 側の文脈に入るかを見る。
    壊した複製を `CLAUDE_PLUGIN_ROOT` に食わせる検証は済んでいるが、実セッションは未確認。
-4. `permissions` の `ask` **ルール**（フックではなく設定側）が表示されるか検証。
-   表示されるなら、動的判定の要らないものは `permissions` へ移して確実に止められる。
-   残る層の中で最も費用対効果が高い。
-5. `ask` の件を上流へ報告するか判断する。再現手順は README に揃っている。
+4. **`permissions.deny` 雛形の作成。** `ask` が使えないと確定したので、確実に止めたいものは
+   `deny` に置くしかない。ただし `deny` は問い返しが無いぶん、広く書くと作業が止まる。
+   本当に取り返しがつかないものだけに絞る（`git push --force`、`rm -rf ~` 等）。
+   dotfiles 経由で配れる。
+5. `ask` の件を上流へ報告するか判断する。再現手順は README に揃っている
+   （フック経由と permissions ルールの両方、`deny` の対照つき）。
 
 ## 今後の3本柱
 
@@ -129,8 +143,8 @@ OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換はまだ手�
 | OS/FS | パーミッション、`chattr +i` | エージェント無関係に効く。最強 |
 | Git | `core.hooksPath` でグローバル hooks | **実装済み（`githooks/`）。** シェル直叩きでも効く |
 | コマンド | `trash-cli` で `rm` を置換 | 不可逆でなくす。確認すら要らない |
-| Claude Code | `permissions.deny` / `ask` | 宣言的。hooks より壊れにくい（`ask` の表示は要検証） |
-| Claude Code | hooks | 柔軟。`deny` は確実、`ask` は環境依存 |
+| Claude Code | `permissions.deny` | 宣言的で確実に効く。**`ask` ルールは機能しない**ので deny のみ |
+| Claude Code | hooks | 柔軟。`deny` は確実、**`ask` は表示されない** |
 
 `permissions` は dotfiles 経由で配れる（`~/.claude/settings.json` が symlink のため）。
 プラグインからは配れないが、配布経路としては解決済み。

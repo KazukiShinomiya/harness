@@ -138,12 +138,14 @@ def emit(problems, root):
 
     if current == "ask":
         caveat = (
-            "注意: PreToolUse フックの permissionDecision \"ask\" は、"
-            "Claude Code 側で確認ダイアログとして表示されない場合がある"
-            "（v2.1.220 で default / acceptEdits の両方で実測。deny は同一経路で機能する）。"
-            "ask が表示されるかは次で手動確認できる:\n"
+            "注意: \"ask\" は Claude Code 側で確認ダイアログとして表示されない場合がある。"
+            "v2.1.220 では PreToolUse フック経由でも permissions の ask ルールでも表示されず、"
+            "一方 deny は両経路とも確実に効くことを実測した"
+            "（permissionMode は default / acceptEdits のいずれでも同じ）。"
+            "表示されるかは次で手動確認できる:\n"
             "  rm -f /tmp/guardrails-manual-check\n"
             "確認が出なければ、この環境で guardrails は検出しても素通しになる。"
+            "確実に止めたいものは decision=deny か git 層（githooks/）へ寄せること。"
         )
         agent_msg += "\n" + caveat
         if problems:
