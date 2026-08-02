@@ -1,6 +1,21 @@
-# Upstream report draft — `permissionDecision: "ask"` never prompts
+# Upstream report — `permissionDecision: "ask"` never prompts
 
-未提出の下書き。提出するかは未定。事実と再現手順だけを書き、推測は "Speculation" 節に隔離してある。
+**決着（2026-08-02）。新規 issue としては出していない。**
+
+提出前に上流を検索したところ、同じ内容が既に 15 件以上報告されていた。最も近いのは
+[anthropics/claude-code#79356](https://github.com/anthropics/claude-code/issues/79356) で、
+下書きとほぼ同一の主張（hook 経路と `permissions.ask` の両方が効かない、`deny` は効く）。
+ただし報告環境が Windows 11 / PowerShell / v2.1.215 で、`platform:windows` ラベルが付いていた。
+
+そこで 16 件目の重複を作らず、**この下書きの対照実験を #79356 へのコメントとして出した**。
+新規性はプラットフォームの否定——Linux / Bash / v2.1.220 でも同じことが起きるので、
+`platform:windows` という分類は狭すぎる、という点にある。
+
+投稿: <https://github.com/anthropics/claude-code/issues/79356#issuecomment-5157316941>
+
+以下は元の下書き。事実と再現手順だけを書き、推測は "Speculation" 節に隔離してある。
+コメントとして出したのは Environment / Reproduction / Impact / Workaround の各節を
+圧縮したもので、Speculation は載せていない。
 
 ---
 

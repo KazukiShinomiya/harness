@@ -73,6 +73,37 @@ contains '保護パスを検出する' 'protected path' "$out"
 out=$(judge protected_paths.py '{"tool_input":{"file_path":"/tmp/x/main.py"}}')
 empty '通常のパスは素通しする' "$out"
 
+# ---------------------------------------------------------------- userConfig
+section 'userConfig（multiple の直列化）'
+
+# v2.1.220 で実測した形式そのものを入力にする。Claude Code は multiple: true の値を
+# JavaScript の String(配列) で渡す——カンマ区切り、区切りにスペースなし。
+# judge_opt <環境変数名> <値> <判定器> <入力>
+judge_opt() {
+	printf '%s' "$4" | env "$1=$2" python3 "$GUARD/scripts/$3" 2>/dev/null
+}
+
+out=$(judge_opt CLAUDE_PLUGIN_OPTION_EXTRA_PATTERNS 'flyctl deploy,terraform apply' \
+	irreversible_ops.py '{"tool_input":{"command":"terraform apply"}}')
+contains 'カンマ区切りの追加パターンが効く' '"permissionDecision"' "$out"
+
+# 要素内のスペースは区切りではない。2 語のパターンが 1 件として保たれること。
+out=$(judge_opt CLAUDE_PLUGIN_OPTION_EXTRA_PATTERNS 'flyctl deploy,terraform apply' \
+	irreversible_ops.py '{"tool_input":{"command":"flyctl deploy --now"}}')
+contains '要素内のスペースを区切りにしない' 'flyctl deploy' "$out"
+
+# 空要素と前後の空白は捨てる。空文字のパターンは全コマンドに一致してしまう。
+out=$(judge_opt CLAUDE_PLUGIN_OPTION_EXTRA_PATTERNS ' , ,  ' \
+	irreversible_ops.py '{"tool_input":{"command":"ls -la /tmp"}}')
+empty '空要素で誤爆しない' "$out"
+
+out=$(judge_opt CLAUDE_PLUGIN_OPTION_PROTECTED_PATHS '*/secrets.yml,*.tfstate' \
+	protected_paths.py '{"tool_input":{"file_path":"/tmp/x/main.tfstate"}}')
+contains '追加の保護パスが効く' 'protected path' "$out"
+
+out=$(judge irreversible_ops.py '{"tool_input":{"command":"terraform apply"}}')
+empty '未設定なら既定パターンのみ' "$out"
+
 # ---------------------------------------------------------------- guard.sh
 section 'guard.sh の fail-safe'
 
@@ -139,6 +170,101 @@ n=$(python3 -c "import json;print(len(json.load(open('$TMP/settings.json'))['per
 
 out=$(python3 "$ROOT/permissions/apply.py" --to "$TMP/settings.json" 2>&1)
 contains '再実行は冪等' '追加するものは無い' "$out"
+
+# ---------------------------------------------------------------- OS/FS 層
+section 'osfs（rm-guard）'
+
+RM="$ROOT/osfs/rm-guard"
+FAKEBIN="$TMP/fakebin"
+mkdir -p "$FAKEBIN" "$TMP/rmwork"
+# 引数を記録するだけの trash-put。実際には何も消さないので副作用が出ない。
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = "--" ] && continue; printf "%%s\\n" "$a" >> "$TRASH_LOG"; done\n' \
+	> "$FAKEBIN/trash-put"
+chmod +x "$FAKEBIN/trash-put"
+export TRASH_LOG="$TMP/trashlog"
+: > "$TRASH_LOG"
+
+touch "$TMP/rmwork/a.txt" "$TMP/rmwork/b with space.txt"
+
+# オプションは trash-put へ渡さない。パスだけが、空白を保ったまま渡ること。
+PATH="$FAKEBIN:$PATH" sh "$RM" -rf "$TMP/rmwork/a.txt" "$TMP/rmwork/b with space.txt" >/dev/null 2>&1
+contains 'オプションを剥がしてパスを渡す' 'a.txt' "$(cat "$TRASH_LOG")"
+contains '空白を含むパスを壊さない' 'b with space.txt' "$(cat "$TRASH_LOG")"
+
+# ゴミ箱が使えないときに本物の rm へ落ちてしまうと、黙って破壊することになる。
+: > "$TRASH_LOG"
+PATH=/usr/bin:/bin sh "$RM" -rf "$TMP/rmwork/a.txt" >/dev/null 2>&1
+if [ -e "$TMP/rmwork/a.txt" ]; then
+	ok 'trash-put が無ければ消さずに止まる'
+else
+	ng 'trash-put が無いのにファイルが消えた'
+fi
+
+PATH="$FAKEBIN:$PATH" sh "$RM" -f "$TMP/does-not-exist" >/dev/null 2>&1
+[ $? -eq 0 ] && ok '-f なら存在しないパスでも成功する' || ng '-f で失敗した'
+
+PATH="$FAKEBIN:$PATH" sh "$RM" "$TMP/does-not-exist" >/dev/null 2>&1
+[ $? -ne 0 ] && ok '-f 無しで存在しないパスは失敗する' || ng '存在しないパスで成功した'
+
+# 脱出口。ここが壊れると本物の rm へ戻れなくなる。
+touch "$TMP/rmwork/real.txt"
+HARNESS_RM_REAL=1 PATH="$FAKEBIN:$PATH" sh "$RM" -f "$TMP/rmwork/real.txt" >/dev/null 2>&1
+[ ! -e "$TMP/rmwork/real.txt" ] && ok 'HARNESS_RM_REAL=1 で本物の rm へ抜ける' \
+	|| ng '脱出口が働かない'
+
+# `--` の後ろはオプションに見えてもパス。
+: > "$TRASH_LOG"
+touch -- "$TMP/rmwork/-rf"
+PATH="$FAKEBIN:$PATH" sh "$RM" -- "$TMP/rmwork/-rf" >/dev/null 2>&1
+contains '-- 以降はオプションに見えてもパス' '/-rf' "$(cat "$TRASH_LOG")"
+
+section 'osfs（install.sh）'
+
+OSFS_HOME="$TMP/osfshome"
+mkdir -p "$OSFS_HOME/.local/bin"
+
+# ゴミ箱が無い状態で設置すると、あらゆる rm が止まるようになる。設置を拒むこと。
+out=$(HOME="$OSFS_HOME" PATH=/usr/bin:/bin sh "$ROOT/osfs/install.sh" 2>&1)
+[ -e "$OSFS_HOME/.local/bin/rm" ] && ng 'trash-cli 不在でも設置した' \
+	|| ok 'trash-cli が無ければ設置しない'
+
+out=$(HOME="$OSFS_HOME" PATH="$FAKEBIN:$PATH" sh "$ROOT/osfs/install.sh" 2>&1)
+[ -L "$OSFS_HOME/.local/bin/rm" ] && ok '設置すると ~/.local/bin/rm ができる' \
+	|| ng "設置できなかった: $(printf '%.60s' "$out")"
+
+out=$(HOME="$OSFS_HOME" PATH="$FAKEBIN:$PATH" sh "$ROOT/osfs/install.sh" --status 2>&1)
+contains '--status が設置済みと報告する' '設置済み' "$out"
+
+out=$(HOME="$OSFS_HOME" PATH="$FAKEBIN:$PATH" sh "$ROOT/osfs/install.sh" 2>&1)
+contains '再実行しても壊さない' '既に設置されている' "$out"
+
+HOME="$OSFS_HOME" PATH="$FAKEBIN:$PATH" sh "$ROOT/osfs/install.sh" --uninstall >/dev/null 2>&1
+[ ! -e "$OSFS_HOME/.local/bin/rm" ] && ok '--uninstall で外れる' || ng '外れなかった'
+
+# 自分が置いたものでなければ触らない。
+printf '#!/bin/sh\n' > "$OSFS_HOME/.local/bin/rm"
+chmod +x "$OSFS_HOME/.local/bin/rm"
+out=$(HOME="$OSFS_HOME" PATH="$FAKEBIN:$PATH" sh "$ROOT/osfs/install.sh" 2>&1)
+contains '既存の rm を上書きしない' '上書きしない' "$out"
+HOME="$OSFS_HOME" PATH="$FAKEBIN:$PATH" sh "$ROOT/osfs/install.sh" --uninstall >/dev/null 2>&1
+[ -e "$OSFS_HOME/.local/bin/rm" ] && ok '他人の rm は --uninstall でも消さない' \
+	|| ng '他人の rm を消した'
+
+section 'osfs（immutable.sh）'
+
+# sudo が要る経路は走らせない。既定で何も適用しないことと、案内が出ることだけ見る。
+out=$(HOME="$OSFS_HOME" sh "$ROOT/osfs/immutable.sh" status 2>&1)
+contains 'status は候補を出す' '候補' "$out"
+contains 'status は副作用も併記する' '代償' "$out"
+
+out=$(HOME="$OSFS_HOME" sh "$ROOT/osfs/immutable.sh" 2>&1)
+contains '引数なしは status と同じ' '候補' "$out"
+
+HOME="$OSFS_HOME" sh "$ROOT/osfs/immutable.sh" lock >/dev/null 2>&1
+[ $? -eq 2 ] && ok 'パス無しの lock は何もせず終わる' || ng 'パス無しの lock が想定外の終了'
+
+HOME="$OSFS_HOME" sh "$ROOT/osfs/immutable.sh" bogus >/dev/null 2>&1
+[ $? -eq 2 ] && ok '未知のコマンドは使い方を出して終わる' || ng '未知コマンドで想定外の終了'
 
 # ---------------------------------------------------------------- git 層
 section 'githooks（隔離リポジトリ）'

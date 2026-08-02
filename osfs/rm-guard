@@ -1,0 +1,86 @@
+#!/bin/sh
+# rm の置き換え。消さずにゴミ箱（trash-cli）へ送る。
+#
+# PATH の前方（~/.local/bin）に `rm` という名前で置かれる。alias ではないため、
+# 対話シェルだけでなく Claude Code の Bash ツールや各種スクリプトからも効く。
+# alias が非対話シェルへ届かないことは実測で確かめてある（README を参照）。
+#
+# 脱出口:
+#   HARNESS_RM_REAL=1 rm ...   この呼び出しだけ本物の rm を使う
+#   /usr/bin/rm ...            絶対パスで直接呼ぶ
+#
+# 効かない経路（過信しないこと）:
+#   sudo rm ...   sudo は secure_path を使うため /usr/bin/rm が呼ばれる
+#   find -delete / unlink / シェルのリダイレクトによる切り詰め
+set -u
+
+REAL_RM=/usr/bin/rm
+
+[ "${HARNESS_RM_REAL:-}" = 1 ] && exec "$REAL_RM" "$@"
+
+# --help / --version は判定に使われることがあるので本物の出力をそのまま返す。
+for arg in "$@"; do
+	case "$arg" in
+		--help|--version) exec "$REAL_RM" "$@" ;;
+		--) break ;;
+	esac
+done
+
+# オプションを捨て、パスだけを位置パラメータへ積み直す。配列が無いため、
+# 元の引数を先頭から消費しながら末尾へ戻す（改行を含むパスでも壊れない）。
+force=0
+end_of_options=0
+remaining=$#
+while [ "$remaining" -gt 0 ]; do
+	arg="$1"
+	shift
+	remaining=$((remaining - 1))
+
+	if [ "$end_of_options" -eq 0 ]; then
+		case "$arg" in
+			--)
+				end_of_options=1
+				continue
+				;;
+			-*)
+				case "$arg" in
+					*f*) force=1 ;;
+				esac
+				# GNU rm のオプションは trash-put へ渡さない。再帰削除はゴミ箱へ
+				# 送る動作では既定の振る舞いになる。
+				continue
+				;;
+		esac
+	fi
+	set -- "$@" "$arg"
+done
+
+if [ $# -eq 0 ]; then
+	# GNU rm と同じ: -f だけなら黙って成功、それ以外は使い方を示す。
+	[ "$force" -eq 1 ] && exit 0
+	printf '%s\n' "rm (harness rm-guard): missing operand" >&2
+	printf "%s\n" "Try '/usr/bin/rm --help' for more information." >&2
+	exit 1
+fi
+
+trash=$(command -v trash-put) || trash=""
+if [ -z "$trash" ]; then
+	# 黙って本物の rm へ落とさない。設置が壊れているなら止まって気付く方がよい。
+	printf '%s\n' "rm-guard: trash-put が見つからない。ゴミ箱へ送れないため中止した" >&2
+	printf '%s\n' "  導入: sudo apt install trash-cli" >&2
+	printf '%s\n' "  この呼び出しだけ本物の rm を使う: HARNESS_RM_REAL=1 rm ..." >&2
+	exit 1
+fi
+
+status=0
+for path in "$@"; do
+	if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+		[ "$force" -eq 1 ] && continue
+		printf "rm-guard: '%s': No such file or directory\n" "$path" >&2
+		status=1
+		continue
+	fi
+	"$trash" -- "$path" || status=1
+done
+
+exit "$status"

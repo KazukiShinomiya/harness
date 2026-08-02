@@ -20,19 +20,20 @@ def decision():
 def option_list(key):
     """userConfig の multiple 値を読む。
 
-    multiple: true がどう直列化されるかは未検証のため、JSON 配列・改行区切り・
-    カンマ区切りのいずれでも受けられるようにしてある。
+    v2.1.220 で実測（生バイトで確認）: multiple: true の値は JavaScript の
+    String(配列) で直列化される。つまり**カンマ区切り**で、区切りにスペースは
+    入らない。JSON 配列でも改行区切りでもない。
+
+        ["alpha", "bra vo", "char,lie"] -> "alpha,bra vo,char,lie"
+
+    要素そのものがカンマを含むと区切りと区別できない。これは Claude Code 側の
+    直列化の性質で、受け側では復元できない。パターンにカンマを使わないこと。
+
+    userConfig のキーは Claude Code が ^[A-Za-z_]\\w* に制限しているため、
+    環境変数名は upper() だけで一致する。
     """
-    raw = os.environ.get("CLAUDE_PLUGIN_OPTION_" + key.upper(), "").strip()
-    if not raw:
-        return []
-    if raw.startswith("["):
-        try:
-            return [str(x) for x in json.loads(raw)]
-        except json.JSONDecodeError:
-            pass
-    sep = "\n" if "\n" in raw else ","
-    return [item.strip() for item in raw.split(sep) if item.strip()]
+    raw = os.environ.get("CLAUDE_PLUGIN_OPTION_" + key.upper(), "")
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def emit(reason):

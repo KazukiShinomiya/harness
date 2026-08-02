@@ -6,10 +6,11 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（32 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（56 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
+| `osfs/` | OS / ファイルシステム | **最下層。** 誰が呼んでも効く。止めるのではなく取り消せるようにする |
 
 **一層に賭けない。** プラグイン側の強制力は Claude Code の実装に左右される（実際、`ask` が
 黙って表示されなくなる事例に当たった）。本当に失いたくないものは git 層で守り、
@@ -51,7 +52,7 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（32 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（56 項目）。失敗があれば非 0 で終了する。
 
 **副作用は持たない。** git のテストは `HOME` ごと差し替えた隔離リポジトリで行うので、
 ユーザーのグローバル設定にも既存のリポジトリにも触れない。実行後に
@@ -281,7 +282,116 @@ permissions/apply.py --to path/to/settings.json
 - **ラッパーは剥がされない。** `npx` `docker exec` `devbox run` 等は内側のコマンドの規則で
   覆えない。必要ならラッパーごと規則を書く
 
+## OS/FS 層（誰が呼んでも効く）
+
+上の三層はいずれも「Claude Code が呼ぶ」か「git が呼ぶ」ことを前提にしている。
+その外から消されたものは守れない。最下層はそこを埋める。
+
+```sh
+sudo apt install trash-cli     # 先に入れること
+osfs/install.sh                # ~/.local/bin/rm として rm-guard を置く
+osfs/install.sh --status
+osfs/install.sh --uninstall
+```
+
+### 止めるのではなく取り消せるようにする
+
+この層だけ思想が違う。上の三層は**危険な操作を止める**。`rm-guard` は止めない——
+ゴミ箱（trash-cli）へ送るだけで、コマンドは今までどおり成功する。
+
+止める方向で強くしていくと、必ずどこかで作業が止まって、まるごと外される。
+`rm` は日常的に使うものなので、そこに確認を挟むのは長続きしない。
+**消えたものが戻せるなら、止める必要がない。**
+
+```sh
+trash-list                     # 何が入っているか
+trash-restore                  # 戻す
+trash-empty 30                 # 30 日より古いものを捨てる
+```
+
+### alias ではなく PATH に置く（実測）
+
+`alias rm=trash-put` では**足りない**。Claude Code の Bash ツールは非対話シェルで、
+`~/.zshrc` の alias は届かない。実際にこの環境の hook から `alias` を採ったところ、
+zsh 組み込みの 3 件しか無かった。エージェントの `rm` を覆えないなら意味がない。
+
+`~/.local/bin` は PATH 上で `/usr/bin` より前にあるため、ここに `rm` という名前で
+置けば対話シェル・スクリプト・エージェントのすべてから同じものが呼ばれる。
+`install.sh --status` は PATH の順序を確認して、後ろにある場合は警告する。
+
+### ゴミ箱が使えないときは黙って本物の rm へ落とさない
+
+`trash-put` が見つからないとき、`rm-guard` は本物の `rm` へ委譲せずエラーで止まる。
+落としてしまうと「守られているつもりで守られていない」状態が黙って続く。
+このリポジトリが一貫して潰そうとしている失敗そのものになる。
+
+### 効かない経路を書いておく
+
+過信させないために、効かないものを明記する。
+
+- `sudo rm` — `sudo` は `secure_path` を使うため `/usr/bin/rm` が呼ばれる
+- `find -delete`、`unlink`、`> file` による切り詰め
+- 脱出口 `HARNESS_RM_REAL=1 rm ...`（意図的に用意してある）
+
+### `chattr +i` は候補を出すだけ
+
+`osfs/immutable.sh` は**既定では何も適用しない**。`status` が候補と、それぞれを
+固めたときに何が動かなくなるかを並べる。
+
+| 対象 | 守るもの | 代償 |
+|---|---|---|
+| `~/.gitconfig` | `core.hooksPath`（git 層の入口） | `git config --global` が全て失敗する |
+| `~/.claude/settings.json` | `enabledPlugins`、`permissions.deny` | Claude Code 自身が設定を書けなくなる |
+| `~/.ssh/authorized_keys` | 鍵の追加による侵入経路 | 鍵の管理が手作業になる |
+
+代償の方が大きい場合が多いので、一括で掛ける口は用意していない。
+`chattr` は `permissions/deny-recommended.json` の拒否対象に入れてあるため、
+このスクリプトは Claude Code からは実行できない。手で叩くこと。
+symlink に掛けても中身は守れないので、`lock` は実体を解決してから適用する。
+
 ## 設計上の決定
+
+### `userConfig` の `multiple: true` はカンマ区切り（実測）
+
+v2.1.220 で確定。プラグインの `userConfig` の値は、hook 環境変数へ
+JavaScript の `String(配列)` で直列化される。本体の該当箇所はこう書かれている。
+
+```js
+M[`CLAUDE_PLUGIN_OPTION_${ge}`] = String(Ne)
+```
+
+つまり**カンマ区切り**で、区切りにスペースは入らない。JSON 配列でも改行区切りでもない。
+生バイトで確認した実測値:
+
+```
+["alpha", "bra vo", "char,lie"]  ->  CLAUDE_PLUGIN_OPTION_EXTRA_PATTERNS=alpha,bra vo,char,lie
+```
+
+結果として:
+
+- 要素の中のスペースは保たれる。2 語のパターン（`flyctl deploy`）は書ける
+- **要素の中のカンマは区切りと区別できない。** 受け側では復元しようがない。
+  パターンにカンマを使わないこと
+- `_common.option_list()` はカンマで分割し、前後の空白と空要素を捨てるだけにしてある
+
+ついでに分かったことが二つある。
+
+**設定は新しいセッションでしか読まれない。** `pluginConfigs` を書いても、
+実行中のセッションの hook 環境には現れない。`permissions.deny` は再起動なしで
+効いたので、経路が違う。検証するなら `claude -p` で子セッションを起こす。
+
+**プロジェクトスコープでは効かない。** `.claude/settings.local.json` に
+`pluginConfigs` を書いても hook には届かない。`extraKnownMarketplaces` と同じ穴。
+ユーザー設定（`~/.claude/settings.json`）に置くこと。保存先の形はこう:
+
+```json
+"pluginConfigs": {
+  "guardrails@harness": { "options": { "extra_patterns": ["deploy prod"] } }
+}
+```
+
+なお `${user_config.KEY}` を hook の shell 形式コマンドに書くと Claude Code が
+拒否する（置換後の値がシェルで再解釈されるため）。exec 形式か、環境変数を読むこと。
 
 ### fail-safe（判定不能なら ask）
 
@@ -468,10 +578,18 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
       効かない（対照実験で確定）。`install.sh` で 2 コマンドに包む形に落とした
 - [x] `githooks` をグローバル（`core.hooksPath`）へ適用済み。適用前に影響を実測し、
       実装していない種類の hook を殺さないよう受け渡しを用意してから入れた
-- [ ] `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証
-      （`_common.option_list()` は JSON 配列・改行区切り・カンマ区切りの三通りを受けるようにしてある）
-- [ ] OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換
-- [ ] `ask` の件の上流報告。下書きは [`docs/upstream-report-draft.md`](docs/upstream-report-draft.md)。提出は未定
+- [x] **`userConfig` の `multiple: true` はカンマ区切りだった**（生バイトで実測、v2.1.220）。
+      `_common.option_list()` をそれに合わせて単純化した。あわせて「設定は新セッションでしか
+      読まれない」「プロジェクトスコープでは効かない」ことも判明（[詳細](#userconfig-の-multiple-true-はカンマ区切り実測)）
+- [x] **OS/FS 層を用意した** → `osfs/`。`rm-guard`（PATH 前方に置く `rm` の置き換え）と
+      `immutable.sh`（`chattr +i` の候補提示）。**この機への適用はまだ**——`trash-cli` の
+      導入に sudo が要るため、`sudo apt install trash-cli && osfs/install.sh` は手で叩くこと
+- [x] **`ask` の件は上流へ報告済み。** ただし新規 issue ではない——同じ報告が既に 15 件以上
+      上がっていたため、最も近い [#79356](https://github.com/anthropics/claude-code/issues/79356)
+      へコメントした（[投稿](https://github.com/anthropics/claude-code/issues/79356#issuecomment-5157316941)）。
+      あちらは Windows / PowerShell で報告され `platform:windows` ラベルが付いていたので、
+      Linux / Bash / v2.1.220 でも再現することを対照実験ごと足した。顛末は
+      [`docs/upstream-report-draft.md`](docs/upstream-report-draft.md)
 - [ ] `session-harness` は初版のまま手付かず
 
 ## License
