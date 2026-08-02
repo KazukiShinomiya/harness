@@ -4,236 +4,66 @@
 
 ## 現在の状況
 
-**「実セッションでフックが発火しない」という前提は誤りだった。取り消す。**
-フックは最初から正常に発火していた。切り分けは完了している。
-private リポジトリ `KazukiShinomiya/harness`（master）。harness / dotfiles とも push 済み。
+多層防御が三層とも稼働している。private リポジトリ `KazukiShinomiya/harness`（master）。
+harness / dotfiles とも push 済み、作業ツリーはクリーン。
 
-真の問題は **`ask` という経路そのものが機能していないこと**。PreToolUse フック経由でも
-`permissions` の `ask` ルールでも確認が出ず、`deny` は両経路とも確実に効く（対照実験で確定）。
-これは Claude Code 側の挙動であり、こちらでは直せない。
-
-そこで**一層に賭けるのをやめた**。自己診断（黙って死なせない）、git 層（Claude Code 非依存）、
-`permissions.deny`（宣言的で確実）の 3 つを実装し、いずれも実環境で動作を確認済み。
-公開準備（LICENSE・`<owner>` 置換・上流報告の下書き）も完了している。
+**`ask` という経路そのものが機能しない**（Claude Code v2.1.220）。PreToolUse フック経由でも
+`permissions` の `ask` ルールでも確認が出ず、`deny` は両経路とも効く。対照実験で確定した。
+こちらでは直せないため、確実に止めたいものは `deny` と git 層へ寄せてある。
+再現手順と対照は README と `docs/upstream-report-draft.md` に。
 
 ## 前回の戦果
 
-### 誤診の原因（2 セッション溶かした）
+**「実セッションでフックが発火しない」という 2 セッション分の前提は誤りだった。取り消す。**
+フックは最初から発火していた。誤診の原因は計測器の置き場所——マーケットプレイスが
+`directory` source のときプラグインはキャッシュではなくリポジトリから直接読まれるのに、
+診断ログをキャッシュ側に仕込んでいた。加えてログの出力先ディレクトリも消えており、
+`|| true` が書き込み失敗を握り潰していた。二重に見えなくなっていた。
 
-1. **計測器を実行されないファイルに置いていた。** `extraKnownMarketplaces` が `harness` を
-   `directory` source（`~/repos/harness`）で登録しているため、プラグインはキャッシュではなく
-   **リポジトリから直接**読まれる。診断ログは `~/.claude/plugins/cache/.../guard.sh` に
-   仕込んであったので、当然一行も増えなかった。
-   フック実行時の `CLAUDE_PLUGIN_ROOT=/home/ubuntu/repos/harness/plugins/guardrails` で確定。
-2. **その診断ログの出力先も消えていた。** 前セッションの scratchpad ごと消滅し、
-   `>> ... 2>/dev/null || true` が書き込み失敗を握りつぶしていた。二重に見えなくなっていた。
+この日の実装（詳細は README と git log）:
 
-前セッションの「`Write` でも発火しない（最も確度の高い観測）」は、この二重の盲点によるもの。
+- `guardrails` / `session-harness` の自己診断。登録の有無ではなく**実際に動くか**を毎回検査し、
+  異常なら `systemMessage` と `additionalContext` の両方で報告する
+- `githooks/` — Claude Code 非依存の git 層。**グローバル適用済み**
+- `permissions/` — `deny` 雛形と差分マージ用 `apply.py`
+- `install.sh` / `tests/run.sh`（32 項目、副作用なし）
+- LICENSE（MIT）、上流報告の下書き
 
-### 実測で確定した切り分け
-
-| 段 | 状態 | 根拠 |
-|---|---|---|
-| フックの登録 | ✓ | `/hooks` が 6 hooks / PreToolUse (3) を報告 |
-| フックスクリプトの実行 | ✓ | 出力先を修正した診断ログに実際に行が増えた |
-| 判定器の出力 | ✓ | フック経由の stdout に正しい `ask` JSON（`OUT=` 行で実測） |
-| `deny` の反映 | ✓ | `sed 's/"ask"/"deny"/'` を挟むとブロックされ理由文も表示 |
-| **`ask` の反映** | **✗** | 同一経路・同一 JSON で `ask` のときだけ素通し |
-
-`permissionMode` は `default` / `acceptEdits` の両方で再現。**モード非依存。**
-公式ドキュメント（permissions の "Extend permissions with hooks"）は `ask` について
-"force a prompt" と書いており、**観測は仕様と食い違う**。v2.1.220。
-
-**さらにフック固有の問題でもないと確定した。** `permissions` の `ask` ルール（設定側）でも
-同じことが起きる。対照実験:
-
-| 設定 | 投入したルール | 結果 |
-|---|---|---|
-| `permissions.deny` | `Bash(touch:*)` | **即ブロック**。設定が生きている証拠（再起動不要で反映） |
-| `permissions.ask` | `Bash(rm:*)` | **確認が出ず素通し** |
-
-同じファイルの `deny` が効いている以上「設定が読まれていない」では説明できない。
-壊れているのは **`ask` という経路そのもの**。**この環境で確実に止められるのは
-`deny` と git 層だけ。** 検証後、`~/.claude/settings.json` はバイト単位で復元済み。
-
-`CLAUDE_CODE_CHILD_SESSION=1` は容疑者から外れた。claude 本体（pid）の環境にも親 zsh にも
-存在せず、Claude Code が Bash ツールの子プロセスへ注入しているマーカーにすぎない。
-
-### 実装したもの
-
-- `plugins/guardrails/scripts/selfcheck.py` / `selfcheck.sh`（新規）
-  `SessionStart` で `guard.sh` を合成ペイロードで実際に起動し、判定器が決定を返すところまで
-  通しで検査する。異常なら `systemMessage` でユーザーに、`additionalContext` で Claude に警告。
-  診断自体が失敗しても黙らず「生死不明」と報告する。正常時も**実行中のプラグインパスを毎回報告**
-  （今回の誤診はこれ一つで防げた）。異常系 2 通り（root 未設定 / 判定器が黙る）を実測で確認済み。
-- `plugins/guardrails/hooks/hooks.json` に `SessionStart` エントリを追加
-- README に「`ask` は環境によって黙って消える（実測）」「自己診断」の 2 節、
-  落とし穴に 2 項（`directory` source / 診断ログの出力先）を追記。TODO を実測結果で更新
-- `claude plugin validate` は marketplace / plugin とも通過
-
-**既定 decision は `ask` のまま据え置いた**（ユーザー判断）。`deny` は判定器が壊れた瞬間に
-全プロジェクトで作業不能になり fail-safe 方針の撤回になるため、既定を硬くするのではなく
-「黙っているのをやめる」方向で解いた。
-
-### 多層防御の git 層（新規）
-
-`githooks/` を実装した。プラグインではなく `core.hooksPath` に載せる素の git フックで、
-**Claude Code の状態に一切依存しない。** `ask` が消える問題があっても独立して効く。
-
-- `pre-commit` — 秘密情報（`.env` / `*.pem` / `*.key` / `*credentials*` 等）のコミットを止める
-- `pre-push` — 保護ブランチへの強制 push と削除を止める（既定 `main` `master`）
-- `_lib.sh` — 保護パターン、`chain_local_hook`（`core.hooksPath` が `.git/hooks` を潰す問題への対処）
-- `install.sh` — `--local` / `--uninstall` 対応。既存の `core.hooksPath` は上書きせず exit 1
-
-**git フックには問い返す手段が無いので `ask` に倒せない。止める層。** 逃げ道は `--no-verify` のみ。
-
-隔離環境（`HOME` ごと差し替え）で 8 通り実測: 通常コミット○ / `.env` コミット✗ / `--no-verify`○ /
-通常 push○ / 強制 push✗ / ブランチ削除✗ / ローカルフック委譲○ / 保護外ブランチの強制 push○（誤爆なし）。
-さらに `~/repos/harness` へ `--local` 適用した実リポジトリでも `.env` のコミットが止まることを確認。
-**ユーザーのグローバル git 設定には触れていない。**
-
-### permissions 層（新規）
-
-`permissions/deny-recommended.json` と `apply.py`。`ask` が使えないと確定したため、
-Claude Code 側で効く唯一の手段として `deny` の雛形を用意した。
-
-**引数を制約するパターンは書かない。** 公式ドキュメントが脆いと明記しており、
-`Bash(git push --force *)` は `-f` にも `--force-with-lease` にも当たらない。
-コマンド名単位（`sudo` `dd` `mkfs` `fdisk` `shred` `chattr` `shutdown` 等）に絞り、
-引数レベルは git 層に任せる。`~/.claude/settings.json` への `Edit` も拒否対象に入れてある
-（symlink 実体の `~/dotfiles/...` も併記。片方だけでは迂回できる）。
-
-`apply.py` は既定 dry-run、`--write` で適用し実体側に `.bak` を残す。既存規則は消さず和集合。
-複製に対して dry-run / `--write` / 冪等性を実測済み（既存の allow 17 件も保たれる）。
+**自分が「黙って壊す」側になっていたのを最後に見つけた。** `core.hooksPath` はそのディレクトリ
+しか見ないため、実装していない種類の hook（`commit-msg` 等）が警告も無く無効化される。
+受け渡し専用の hook を 14 種類ぶん置いて塞いだ。テストで回帰を見張っている。
 
 ## 次の行動
 
-1. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
-   提出は外向きの公開行為なので、内容を読んでから決めること。
-2. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。
-   残るのはリポジトリの可視性を private から変える操作そのもの。
-3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
-   `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
-4. `githooks` の保護パターンは `.env` `*.pem` `*.key` `*credentials*` 等。
-   正規にコミットするリポジトリに当たったら `guardrails.disable true` か `--no-verify`。
-   保護ブランチが `main` `master` 以外のリポジトリでは `guardrails.protectedBranches` を設定。
-5. `githooks` の保護パターンと `protected_paths.py` は意図的に重複させてある。
-   片方を変えたらもう片方も見ること（`_lib.sh` の冒頭に注記済み。`tests/run.sh` が
-   主要パターンの両層存在を確認する）。
+1. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成。外向きの公開行為。
+2. **public への切り替え。** 準備は全て済んでいる。残るのは可視性を変える操作そのもの。
+3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` 置換。未着手。
+   `chattr` は deny に入れたので設定は手動になる。
+4. `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証。
 
-**変更したら `tests/run.sh` を通すこと。** 29 項目、副作用なし。
-今日までの確認は全て使い捨てのコマンドで行っており、繰り返せる形が無かった。
+## この機の適用状態
 
-### 検証が完了したもの
-
-- **自己診断は実 `SessionStart` で発火する。** `~/repos/harness` から
-  `claude -p` で新規セッションを起こし、そのセッション自身に文脈を読ませて確認した。
-- **グローバル設定からの移行が完了。** `session-harness` を先に入れて注入を確認してから、
-  移植元の `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入）を削除。
-  削除後も新規セッションで両プラグインが報告を返し、SESSION_STATE の重複注入も無い。
-  残っているのは dotfiles の drift / freshness だけ（harness とは無関係なので残す）。
-- **`session-harness` も黙らなくなった。** 6 経路を区別して報告する。全経路を実測。
-  特に「無い」ときに**どこを探したか**を伝えるのが要点。今朝の起動位置取り違えは
-  これがあれば即座に分かった。止めも確認もしない方針は変えていない——
-  **黙らないことと止めることは別**。
-- **skill は登録されている。** 実セッションで `session-harness:session-state` として
-  認識されることを確認。今日の教訓（誤った結論は明示的に取り消す / 検証の状態を書き分ける）を
-  原則に追記した。SESSION_STATE を事実として引き継ぐ次のセッションを誤らせないため。
-- **導入は手順ゼロにできない。** プロジェクトスコープの `extraKnownMarketplaces` は効かない。
-  `install.sh` で 2 コマンドに包んだ。
-- `~/repos/harness` `~/dotfiles` とも push 済み。
-- README の `<owner>` は `KazukiShinomiya` に置換済み。
-
-## 今回適用したもの（実環境）
-
-- **`githooks` をグローバル（`core.hooksPath`）へ適用済み。** 全リポジトリで効く。
-  適用前に実測した影響は次のとおり。この機の露出はゼロ（`harness` `tekken-bot` `dotfiles` の
-  いずれも `.git/hooks` を使っていない）、実装していない種類の hook は受け渡しで全て動く、
-  husky v9 以降のリポジトリは local が優先するため影響なし（ただし守られもしない）。
-  適用後、本番設定で通常コミット○ / `.env` コミット✗ / ローカル `commit-msg` 委譲○ を確認。
-  撤回は `githooks/install.sh --uninstall` の一手。
-  `harness` には `--local` も残してある（グローバルを外しても自身は守られる）。
-- **`permissions.deny` は 12 件**（ディスク破壊系 8 + 電源系 4）。`sudo` は `apt install` 等を
-  任せられなくなるため**入れていない**。`Edit(~/.claude/settings.json)` 等の自己改変防止も
-  今回は見送り（設定作業が全て手動になるため）。`fdisk --version` が拒否されることを実測。
-- **`extraKnownMarketplaces` の `path` はチルダ表記に変更。** `~/repos/harness` が展開されて
-  プラグインまで解決されることを `claude plugin list` で確認。絶対パスだと他マシンで壊れる。
-
-## 今後の3本柱
-
-### 1. 他リポジトリへの展開
-
-`install.sh` を用意した。中身は 2 コマンド。
-
-```bash
-./install.sh                # marketplace 登録 + 両プラグイン導入
-./install.sh --dry-run      # 走らせるコマンドを見るだけ
-```
-
-**手順ゼロは不可能と確定した。** プロジェクトの `.claude/settings.json` に
-`extraKnownMarketplaces` を書いても効かない。隔離環境で使い捨てのマーケットプレイスを
-作って対照実験した。
-
-| 置いたもの | 結果 |
+| 層 | 状態 |
 |---|---|
-| プロジェクト設定の `hooks`（プラグイン非経由） | **発火する**（対照） |
-| プロジェクト設定の `extraKnownMarketplaces` + `enabledPlugins` | プラグインが読まれない |
-| 同状態で `claude plugin marketplace list` | **マーケットプレイスとして認識すらされない** |
+| プラグイン | `guardrails` `session-harness` とも user スコープで有効 |
+| `permissions.deny` | 12 件（ディスク破壊系 8 + 電源系 4）。`sudo` と設定ファイル保護は**入れていない** |
+| git 層 | `core.hooksPath` をグローバル適用。`harness` には `--local` も残してある |
 
-直接フックが効く以上「設定が読まれていない」では説明できない。このキーがプロジェクト
-スコープでは扱われないということ。marketplace の登録はユーザー自身が行う必要がある。
-
-### 2. ハーネスの充実
-
-自己診断・git 層・`permissions` 雛形まで実装した。残りは OS/FS 層（`chattr +i`）と
-`trash-cli` による `rm` の置換。
-
-**層ごとに得意な粒度が違う**という整理に至った。同じことを複数層でやろうとしない。
-
-| 層 | 粒度 | 担当 |
-|---|---|---|
-| `permissions.deny` | コマンド名単位 | `sudo` `dd` `mkfs` 等、使わせないと言い切れるもの |
-| git フック | 引数・内容単位 | 強制 push、秘密情報のコミット |
-| プラグイン | 動的判定 | 文脈に応じた判断（ただし `ask` が効かない環境では無力） |
-
-### 3. 公開準備
-
-| 項目 | 状況 |
-|---|---|
-| `.gitignore` | 問題なし |
-| `SESSION_STATE.md` | **公開対象に含める**と決定。誤診の経緯自体がこのリポジトリの価値でもある |
-| README の `<owner>` | `KazukiShinomiya` に置換済み |
-| LICENSE | MIT を設置済み |
-| 動作検証 | 完了。自己診断は実 `SessionStart` で発火することまで確認 |
-| 残り | 可視性を private から変える操作のみ |
-
-## 設計方針（層を分ける）
-
-ガードレールを Claude Code の hooks 一層に賭けない。今回の問題の本質は「守れなかった」ことより
-**「守れていないのに黙っていた」** こと。自己診断はそれに対する直接の回答。
-
-| 層 | 手段 | 性質 |
-|---|---|---|
-| OS/FS | パーミッション、`chattr +i` | エージェント無関係に効く。最強 |
-| Git | `core.hooksPath` でグローバル hooks | **実装済み（`githooks/`）。** シェル直叩きでも効く |
-| コマンド | `trash-cli` で `rm` を置換 | 不可逆でなくす。確認すら要らない |
-| Claude Code | `permissions.deny` | 宣言的で確実に効く。**`ask` ルールは機能しない**ので deny のみ |
-| Claude Code | hooks | 柔軟。`deny` は確実、**`ask` は表示されない** |
-
-`permissions` は dotfiles 経由で配れる（`~/.claude/settings.json` が symlink のため）。
-プラグインからは配れないが、配布経路としては解決済み。
+撤回はいずれも一手（`githooks/install.sh --uninstall`、`deny` は dotfiles の履歴から）。
 
 ## 決定事項・メモ
 
-- **fail-safe を既定とする。** 判定不能なら `ask`。判定器は `guard.sh <判定器名>` 経由で呼び、
-  **exit 2 を返さない**（ブロック扱いになるため）。
-- **プラグインの `settings.json` は `agent` と `subagentStatusLine` の 2 キーのみ。**
-  `permissions.deny` は*プラグインからは*配布できない。当初これを理由に強制力を hooks へ
-  全部寄せたが、`ask` が効かないと分かって方針を改めた。`permissions` は dotfiles 経由で
-  配れるので、配布経路としては解決済み。
-- **dotfiles の drift チェックは設計どおり機能している。** 一度これを誤断したので記録に残す。
+- **黙らないことと止めることは別。** 危険でないものを止める必要は無いが、黙ってよいわけでもない。
+  `session-harness` は失敗も不在も報告するが、止めはしない。
+- **fail-safe の既定は `ask` のまま。** `deny` にすると判定器が壊れた瞬間に作業不能になる。
+  既定を硬くするのではなく「黙っているのをやめる」方向で解いた。
+- **層ごとに得意な粒度が違う。** `permissions.deny` はコマンド名単位、git 層は引数・内容単位、
+  プラグインは動的判定。同じことを複数層でやろうとしない。
+- **判定器は `guard.sh` 経由で呼び、exit 2 を返さない**（ブロック扱いになるため）。
+- **導入は手順ゼロにできない。** プロジェクトスコープの `extraKnownMarketplaces` は効かない（実測）。
+- **`githooks` の保護パターンと `protected_paths.py` は意図的に重複させてある。**
+  片方を変えたらもう片方も見ること。`tests/run.sh` が主要パターンの両層存在を確認する。
+- **変更したら `tests/run.sh` を通すこと。** 使い捨てのコマンドで確認して終わりにしない。
 - v2.1.220 の validator は `metadata.pluginRoot` による source 短縮形を拒否する。
-- **診断ログは撤去済み。** リポジトリ側・キャッシュ側の `guard.sh` は一致し、probe 行は残っていない。
-- **起動は必ず `~/repos/harness` から。** `/mnt/e/work/harness` で起動すると SESSION_STATE.md が
-  読み込まれない。今回もそこで起動して危うく経緯を失うところだった
-  （復元はセッションログ `~/.claude/projects/-mnt-e-work-harness/*.jsonl` から可能）。
+- **起動は必ず `~/repos/harness` から。** `/mnt/e/work/harness` で起動すると SESSION_STATE が
+  読み込まれない（`session-harness` が「どこを探したか」を報告するので気付ける）。

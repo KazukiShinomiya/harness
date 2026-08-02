@@ -86,9 +86,12 @@ cd ~/repos/harness/plugins/guardrails/scripts
 echo '{"tool_name":"Bash","tool_input":{"command":"rm -f /tmp/x"}}' | python3 ./irreversible_ops.py
 ```
 
-1 が最もクリーンな検証になる。`Edit`/`Write` を見ているのは guardrails だけで、
-移行前のグローバルフックは `Bash` しか matcher に持たないため、確認が出れば guardrails 由来と確定できる。
-2 は両方が発火して二重になるが、文言が違う（グローバル側は `irreversible op (commit/push/deploy/reset/rm):`）ので見分けられる。
+1 が最もクリーンな検証になる。`Edit`/`Write` を matcher に持つのは guardrails だけなので、
+確認が出れば guardrails 由来と確定できる。
+
+なお `git commit` を試すときは、**git 層の `pre-commit` が別に走る**ことに注意。
+`githooks/` を入れている環境では、プラグインの判定を通り抜けても秘密情報のコミットは
+git 側で止まる。層が違うので文言で見分けられる（`guardrails(git):` が git 層）。
 
 ### 落とし穴
 
@@ -463,7 +466,8 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
       `CLAUDE_PLUGIN_ROOT` 未設定 の 6 通りを区別して報告する（全経路を実測）
 - [x] **導入を手順ゼロにはできない。** プロジェクトスコープの `extraKnownMarketplaces` は
       効かない（対照実験で確定）。`install.sh` で 2 コマンドに包む形に落とした
-- [ ] `githooks/install.sh` をグローバルへ適用するか（現在は harness に `--local` のみ）
+- [x] `githooks` をグローバル（`core.hooksPath`）へ適用済み。適用前に影響を実測し、
+      実装していない種類の hook を殺さないよう受け渡しを用意してから入れた
 - [ ] `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証
       （`_common.option_list()` は JSON 配列・改行区切り・カンマ区切りの三通りを受けるようにしてある）
 - [ ] OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換
