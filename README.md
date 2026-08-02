@@ -327,15 +327,14 @@ Claude Code のプラグインが `settings.json` で供給できるのは `agen
 `${CLAUDE_PLUGIN_ROOT}` はプラグイン更新のたびに変わる。永続させたいものは `${CLAUDE_PLUGIN_DATA}` へ。
 現状どちらのプラグインも状態を持たない。
 
-## 既存のグローバル設定からの移行（未完了）
+## 既存のグローバル設定からの移行（完了）
 
-`~/.claude/settings.json` の `hooks` には、ここへ移植した内容と同等のものが**まだ残っている**。
-現在 `PreToolUse` が 1 件（`Bash` matcher）、`SessionStart` が 3 件（SESSION_STATE 注入と
-dotfiles の drift / freshness チェック）。
+`~/.claude/settings.json` に残っていた移植元は削除済み。dotfiles の drift / freshness
+チェックだけが残っている（harness とは無関係なので残す）。
 
-本来なら二重に発火して確認が二度出るはずだが、**`ask` が表示されない現状では二重にも見えない**。
-これも「黙って重複している」状態で、移行が済んだかどうかを確認では判断できない。
-残っているかは設定を直接読んで確かめること。
+移行が済んだかどうかは**確認の有無では判断できない**。本来なら二重に発火して確認が
+二度出るはずだが、`ask` が表示されない環境では二重にも見えないため。
+設定を直接読んで確かめること。
 
 | グローバル側 | 引き継ぎ先 | 削除してよいか |
 |---|---|---|
@@ -345,18 +344,20 @@ dotfiles の drift / freshness チェック）。
 
 ### 順序を間違えると SESSION_STATE が黙って読まれなくなる
 
-**`session-harness` は現在インストールされていない。** 有効なのは `guardrails` だけで、
-SESSION_STATE の注入を担っているのは**グローバル設定のフックただ一つ**。
-先にグローバル側を消すと、引き継ぎ先が存在しないまま注入が落ちる。
-
-しかも落ちても**何も表示されない**。次のセッションが「前回の経緯を知らないまま」始まるだけで、
-気付く手がかりが無い。必ずこの順で行うこと。
+同じ移行を他の環境でやる人向けに残しておく。**SESSION_STATE の注入を担っているのが
+グローバルフックただ一つの状態で先にそれを消すと、引き継ぎ先が無いまま注入が落ちる。**
+しかも落ちても何も表示されない。次のセッションが「前回の経緯を知らないまま」始まるだけで、
+消してから気付く手段が無い。必ずこの順で行う。
 
 ```bash
 claude plugin install session-harness@harness   # 先に引き継ぎ先を立てる
 # 新規セッションを起こし、SESSION_STATE が文脈に入ることを確認してから
 # dotfiles 側でグローバルの SessionStart（注入分）を削除する
 ```
+
+作者の環境ではこの順で実施し、削除後も新規セッションで
+`session-harness: <path> を読み込んだ` と `guardrails: 有効（...）` の両方が出ること、
+SESSION_STATE が重複注入されていないことを確認した。
 
 `session_state.py` はグローバル側と等価以上（`userConfig.state_file` でファイル名を変えられ、
 空ファイルも弾き、失敗時は黙らず報告する）。
@@ -386,10 +387,8 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 
 ### 未決・未着手
 
-- [ ] **グローバル設定からの移行が未完了。** `~/.claude/settings.json` に移植元の
-      `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）が残っている。
-      `ask` が出ない現状では二重発火に気付けないので、設定を直接読んで確認すること。
-      **`session-harness` を先にインストールしないと SESSION_STATE の注入が落ちる**
+- [x] **グローバル設定からの移行が完了。** `session-harness` を先に入れて注入を確認してから、
+      移植元の `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）を削除した
 - [x] `session-harness` も黙らなくなった。読み込めた / 無い / 空 / 読めない / python 不在 /
       `CLAUDE_PLUGIN_ROOT` 未設定 の 6 通りを区別して報告する（全経路を実測）
 - [ ] `githooks/install.sh` をグローバルへ適用するか（現在は harness に `--local` のみ）
