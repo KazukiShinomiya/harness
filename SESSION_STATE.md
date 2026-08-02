@@ -115,7 +115,8 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
    `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
 4. `githooks` をグローバル（`core.hooksPath`）へ広げるかは未決。現在は harness に `--local` のみ。
-5. `session-harness` の skill（`skills/session-state/SKILL.md`）は初版のまま未検証。
+5. `githooks` の保護パターンと `protected_paths.py` は意図的に重複させてある。
+   片方を変えたらもう片方も見ること（`_lib.sh` の冒頭に注記済み）。
 
 ### 検証が完了したもの
 
@@ -129,6 +130,11 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
   特に「無い」ときに**どこを探したか**を伝えるのが要点。今朝の起動位置取り違えは
   これがあれば即座に分かった。止めも確認もしない方針は変えていない——
   **黙らないことと止めることは別**。
+- **skill は登録されている。** 実セッションで `session-harness:session-state` として
+  認識されることを確認。今日の教訓（誤った結論は明示的に取り消す / 検証の状態を書き分ける）を
+  原則に追記した。SESSION_STATE を事実として引き継ぐ次のセッションを誤らせないため。
+- **導入は手順ゼロにできない。** プロジェクトスコープの `extraKnownMarketplaces` は効かない。
+  `install.sh` で 2 コマンドに包んだ。
 - `~/repos/harness` `~/dotfiles` とも push 済み。
 - README の `<owner>` は `KazukiShinomiya` に置換済み。
 
