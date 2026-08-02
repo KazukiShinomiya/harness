@@ -6,7 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（29 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（32 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -51,7 +51,7 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（29 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（32 項目）。失敗があれば非 0 で終了する。
 
 **副作用は持たない。** git のテストは `HOME` ごと差し替えた隔離リポジトリで行うので、
 ユーザーのグローバル設定にも既存のリポジトリにも触れない。実行後に
@@ -176,12 +176,42 @@ git config guardrails.disable true      # このリポジトリでは切る
 
 ### `core.hooksPath` はリポジトリ固有のフックを無効にする
 
-これが唯一の副作用で、無視できない。`core.hooksPath` を設定すると `.git/hooks/` が丸ごと
-読まれなくなり、husky や lefthook を使っているリポジトリが静かに壊れる。
+これが唯一の副作用で、無視できない。`core.hooksPath` を設定すると git は**そのディレクトリ
+しか見ない**。`.git/hooks/` は丸ごと読まれなくなる。
 
-そのため各フックは処理の最後に**ローカルのフックへ委譲する**（`_lib.sh` の `chain_local_hook`）。
+対処は二段構えにしてある。
+
+**1. 実装している種類は委譲する。** `pre-commit` と `pre-push` は判定を行ったあと、
+ローカルのフックへ処理を渡す（`_lib.sh` の `chain_local_hook`）。
 `git rev-parse --git-common-dir` から実体を引くので `core.hooksPath` の影響を受けず、
-自分自身を呼ぶ場合は再帰を避ける。委譲先の終了コードはそのまま伝播する。
+自分自身を呼ぶ場合は再帰を避ける。終了コードはそのまま伝播する。
+
+**2. 実装していない種類も殺さない。** ここが見落としやすい。`commit-msg`（commitlint 等）や
+`post-merge` は guardrails が判定に使わないため、素朴に作ると**ディレクトリに存在しない=
+一切実行されない**ことになる。しかも何の警告も出ない。まさにこのリポジトリが潰そうとしている
+「黙って壊れる」ものになる。
+
+そこで受け渡し専用のフックを全種類ぶん置いてある（`_passthrough.sh` と 14 個のシム）。
+判定は何もせず、ローカルの実装をそのまま呼ぶだけ。
+
+```
+applypatch-msg  pre-applypatch  post-applypatch  pre-merge-commit
+prepare-commit-msg  commit-msg  post-commit  pre-rebase
+post-checkout  post-merge  pre-auto-gc  post-rewrite
+push-to-checkout  sendemail-validate
+```
+
+実測で確認済み。受け渡しを置く前は `commit-msg` が黙って無効化されたが、置いた後は
+`commit-msg` `prepare-commit-msg` `post-commit` `post-checkout` すべてが動く。
+`tests/run.sh` が回帰を見張っている。
+
+### リポジトリ側が `core.hooksPath` を設定していると効かない
+
+husky v9 以降は `.husky` をリポジトリ固有の `core.hooksPath` に設定する。
+git の設定は local が global に優先するため、**そういうリポジトリでは husky が勝ち、
+この層のガードレールは効かない**（実測）。husky 側が壊れないのは良いが、
+守られていると思い込まないこと。そのリポジトリで守りたければ `--local` で個別に入れるか、
+husky の設定へ組み込む。
 
 ### 検証済みの挙動
 

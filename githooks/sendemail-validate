@@ -1,0 +1,3 @@
+#!/bin/sh
+# 受け渡し専用。詳細は _passthrough.sh を参照。
+exec "$(dirname "$0")/_passthrough.sh" sendemail-validate "$@"

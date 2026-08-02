@@ -194,10 +194,20 @@ fi
 mkdir -p .git/hooks
 printf '#!/bin/sh\ntouch "%s/chained"\n' "$TMP" > .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
+# core.hooksPath はここに無い種類の hook を黙って無効化する。受け渡し版で防ぐ。
+for h in commit-msg prepare-commit-msg post-commit; do
+	printf '#!/bin/sh\ntouch "%s/%s-ran"\n' "$TMP" "$h" > ".git/hooks/$h"
+	chmod +x ".git/hooks/$h"
+done
 echo x > b.txt
 git add b.txt
 git commit -qm chain >/dev/null 2>&1
 [ -f "$TMP/chained" ] && ok 'ローカルの .git/hooks へ委譲する' || ng '委譲されなかった'
+
+for h in commit-msg prepare-commit-msg post-commit; do
+	[ -f "$TMP/$h-ran" ] && ok "実装していない $h も殺さず委譲する" \
+		|| ng "$h が黙って無効化された"
+done
 
 # ---------------------------------------------------------------- 保護パターンの整合
 section '保護パターンの整合（意図的な重複）'
