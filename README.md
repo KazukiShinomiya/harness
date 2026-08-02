@@ -6,6 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（29 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -42,6 +43,22 @@ claude plugin validate ~/repos/harness/plugins/session-harness
 
 なおドキュメントには `metadata.pluginRoot` を置けば `"source": "guardrails"` と短縮できるとあるが、
 v2.1.220 の validator はこれを `Invalid input` で弾く。`"./plugins/guardrails"` と明示している。
+
+## テスト
+
+```bash
+tests/run.sh
+```
+
+判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
+まとめて確かめる（29 項目）。失敗があれば非 0 で終了する。
+
+**副作用は持たない。** git のテストは `HOME` ごと差し替えた隔離リポジトリで行うので、
+ユーザーのグローバル設定にも既存のリポジトリにも触れない。実行後に
+`core.hooksPath` が空のままであることも確認済み。
+
+テストが無ければ、壊れても黙って壊れる。このリポジトリが一貫して潰そうとしている失敗と
+同じものになるので、確認は使い捨てのコマンドで済ませず必ずここへ足すこと。
 
 ## 実セッションでの検証手順
 
