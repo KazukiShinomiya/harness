@@ -119,10 +119,11 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
    新規セッションで注入を確認してから dotfiles 側を消すこと。
    落ちても何も表示されないので、消してから気付くことはできない。
    dotfiles の drift / freshness チェックは harness と無関係なので残す。
-2. **`session-harness` に自己診断が無い。** `session_state.py` は例外を握り潰して
-   黙って諦める（`except Exception: sys.exit(0)`）。`guardrails` で潰したのと同じ型の問題。
-   害は小さい（偽の安心を作らない）が、今朝まさに SESSION_STATE を読まないまま
-   セッションが始まっている。`guardrails` の `selfcheck` と同じ枠組みを移植できる。
+2. **（対応済み）`session-harness` も黙らなくなった。** 読み込めた / 無い / 空 / 読めない /
+   python 不在 / `CLAUDE_PLUGIN_ROOT` 未設定 の 6 通りを区別して報告する。全経路を実測。
+   特に「無い」ときに**どこを探したか**を伝えるのが要点で、今朝の起動位置取り違えは
+   これがあれば即座に分かった。止めも確認もしない方針は変えていない——
+   **黙らないことと止めることは別**。
 3. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
    提出は外向きの公開行為なので、内容を読んでから決めること。
 4. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。

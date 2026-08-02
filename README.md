@@ -18,7 +18,7 @@
 | プラグイン | 役割 | 強制力 |
 |---|---|---|
 | `guardrails` | 不可逆操作（commit/push/reset/rm 等）と保護パスへの書き込みの前に確認を挟む | 条件付き（PreToolUse hook。既定の `ask` が表示されない環境では素通しになる。[詳細](#ask-は環境によって黙って消える実測)） |
-| `session-harness` | `SESSION_STATE.md` の読み込みと更新運用 | なし（hook による文脈注入 + skill） |
+| `session-harness` | `SESSION_STATE.md` の読み込みと更新運用 | なし（hook による文脈注入 + skill）。失敗と不在は報告する |
 
 責務で分けてある。ガードレールだけ欲しい相手にセッション運用まで押し付けないため。
 
@@ -278,6 +278,27 @@ rm -f /tmp/guardrails-manual-check   # 確認が出なければ、その環境�
 判定器が黙る）を壊した複製で実測したうえ、実際の `SessionStart` で発火することも
 `~/repos/harness` から新規セッションを起こして確認済み。
 
+### 「黙らない」は session-harness にも適用する
+
+`session-harness` は当初、注入の失敗を例外ごと握り潰していた。危険ではない（偽の安心を
+作らない）というのがその理由だったが、**それでも黙ってよい理由にはならない**。
+実際に別ディレクトリから起動したセッションが前回の経緯を知らないまま始まり、
+セッションログを漁って復元する羽目になった。
+
+現在は六通りを区別して報告する。
+
+| 状況 | 報告 |
+|---|---|
+| 読み込めた | どのパスから読んだかを添えて注入 |
+| ファイルが無い | **どこを探したか**を伝える。起動位置の取り違えに気付ける唯一の手がかり |
+| 空だった | その旨 |
+| 読めなかった | `systemMessage` でユーザーにも警告 |
+| python が無い | 同上。注入は決して働かない |
+| `CLAUDE_PLUGIN_ROOT` 未設定 | 同上 |
+
+止めも確認もしない点は変わらない。**黙らないことと止めることは別**で、
+危険でないものを止める必要は無いが、黙ってよいわけでもない。
+
 ### プラグインの settings.json では permissions を配れない
 
 Claude Code のプラグインが `settings.json` で供給できるのは `agent` と `subagentStatusLine` の 2 キーのみ。
@@ -338,8 +359,7 @@ claude plugin install session-harness@harness   # 先に引き継ぎ先を立て
 ```
 
 `session_state.py` はグローバル側と等価以上（`userConfig.state_file` でファイル名を変えられ、
-空ファイルも弾く）。ただし例外を握り潰して黙って諦める作りなので、`guardrails` と違い
-自己診断が無い。落ちたことは分からない。
+空ファイルも弾き、失敗時は黙らず報告する）。
 
 なお `~/.claude/settings.json` の正本は `~/dotfiles/.claude/settings.json` 側にあるため、
 削除は dotfiles 側で行い同期する。
@@ -370,8 +390,8 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
       `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）が残っている。
       `ask` が出ない現状では二重発火に気付けないので、設定を直接読んで確認すること。
       **`session-harness` を先にインストールしないと SESSION_STATE の注入が落ちる**
-- [ ] `session-harness` に自己診断が無い。例外を握り潰して黙って諦めるため、
-      SESSION_STATE が読まれなくても気付けない。`guardrails` と同じ問題を抱えている
+- [x] `session-harness` も黙らなくなった。読み込めた / 無い / 空 / 読めない / python 不在 /
+      `CLAUDE_PLUGIN_ROOT` 未設定 の 6 通りを区別して報告する（全経路を実測）
 - [ ] `githooks/install.sh` をグローバルへ適用するか（現在は harness に `--local` のみ）
 - [ ] `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証
       （`_common.option_list()` は JSON 配列・改行区切り・カンマ区切りの三通りを受けるようにしてある）
