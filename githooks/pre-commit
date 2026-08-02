@@ -1,0 +1,33 @@
+#!/bin/sh
+# 秘密情報がコミットに混ざるのを止める。
+#
+# 一度コミットすれば履歴に残り、push すれば取り返しがつかない。
+# ここは「確認を挟む」層ではなく「止める」層。git フックにはユーザーへ問い返す手段が
+# 無いため、fail-safe の ask には倒せない。通したい場合の逃げ道は明示的な --no-verify。
+set -u
+
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+. "$self_dir/_lib.sh"
+
+if ! guardrails_disabled; then
+	# 追加・コピー・変更されたものだけ見る。削除は止める理由が無い。
+	hits=$(
+		git diff --cached --name-only --diff-filter=ACM | while IFS= read -r path; do
+			pattern=$(is_protected_path "$path") && printf '%s  (%s)\n' "$path" "$pattern"
+		done
+	)
+
+	if [ -n "$hits" ]; then
+		printf '\n' >&2
+		printf 'guardrails(git): 秘密情報の可能性があるファイルがステージされている\n' >&2
+		printf '%s\n' "$hits" | sed 's/^/  /' >&2
+		printf '\n' >&2
+		printf '  意図した書き込みでなければ:  git restore --staged <path>\n' >&2
+		printf '  意図したものなら:            git commit --no-verify\n' >&2
+		printf '  この判定を恒久的に切る:      git config guardrails.disable true\n' >&2
+		printf '\n' >&2
+		exit 1
+	fi
+fi
+
+chain_local_hook pre-commit "$@"

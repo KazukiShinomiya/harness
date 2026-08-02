@@ -1,0 +1,60 @@
+#!/bin/sh
+# 保護ブランチへの強制 push と削除を止める。
+#
+# 強制 push は他人の履歴を消す。取り消せる相手が自分だけとは限らないため、
+# 不可逆操作の中でも特に害が大きい。ここも ask には倒せないので止める。
+#
+# stdin の各行: <local_ref> <local_sha> <remote_ref> <remote_sha>
+# 引数: $1 remote 名, $2 remote URL
+set -u
+
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+. "$self_dir/_lib.sh"
+
+ZERO=0000000000000000000000000000000000000000
+
+is_protected_branch() {
+	name=${1#refs/heads/}
+	for candidate in $(protected_branches); do
+		[ "$name" = "$candidate" ] && return 0
+	done
+	return 1
+}
+
+if guardrails_disabled; then
+	exit 0
+fi
+
+# stdin は一度しか読めない。委譲のために保存しておく。
+refs=$(cat)
+
+printf '%s\n' "$refs" | while read -r local_ref local_sha remote_ref remote_sha; do
+	[ -n "${remote_ref:-}" ] || continue
+	is_protected_branch "$remote_ref" || continue
+
+	if [ "$local_sha" = "$ZERO" ]; then
+		printf '\n' >&2
+		printf 'guardrails(git): 保護ブランチの削除を止めた: %s\n' "${remote_ref#refs/heads/}" >&2
+		printf '\n' >&2
+		printf '  本当に消すなら:  git push --no-verify\n' >&2
+		printf '\n' >&2
+		exit 1
+	fi
+
+	# remote に既にコミットがあり、それが local の祖先でないなら non-fast-forward。
+	# つまり相手の履歴を上書きする push。
+	if [ "$remote_sha" != "$ZERO" ]; then
+		if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+			printf '\n' >&2
+			printf 'guardrails(git): 保護ブランチへの強制 push を止めた: %s\n' "${remote_ref#refs/heads/}" >&2
+			printf '  remote の %s は push しようとしている履歴に含まれていない\n' "$(printf '%.12s' "$remote_sha")" >&2
+			printf '\n' >&2
+			printf '  先に取り込むなら:  git pull --rebase\n' >&2
+			printf '  本当に上書きするなら:  git push --no-verify\n' >&2
+			printf '\n' >&2
+			exit 1
+		fi
+	fi
+done || exit 1
+
+printf '%s\n' "$refs" | chain_local_hook pre-push "$@"
