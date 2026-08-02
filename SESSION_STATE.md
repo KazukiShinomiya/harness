@@ -115,8 +115,7 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
    `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
 4. `githooks` をグローバル（`core.hooksPath`）へ広げるかは未決。現在は harness に `--local` のみ。
-5. `extraKnownMarketplaces` がプロジェクトの `.claude/settings.json` でも効くか未検証。
-   効けば他人の導入が手順ゼロになる。
+5. `session-harness` の skill（`skills/session-state/SKILL.md`）は初版のまま未検証。
 
 ### 検証が完了したもの
 
@@ -147,16 +146,25 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 
 ### 1. 他リポジトリへの展開
 
-現状でも他人向けは 2 コマンド。
+`install.sh` を用意した。中身は 2 コマンド。
 
 ```bash
-claude plugin marketplace add KazukiShinomiya/harness
-claude plugin install guardrails@harness --scope project
+./install.sh                # marketplace 登録 + 両プラグイン導入
+./install.sh --dry-run      # 走らせるコマンドを見るだけ
 ```
 
-**手順ゼロにできるか未検証。** グローバルで使っている `extraKnownMarketplaces` が
-プロジェクトの `.claude/settings.json` でも効くなら、marketplace 定義と `enabledPlugins` を
-対象リポジトリにコミットするだけで済む。効かなければ `install.sh` でワンライナー化。
+**手順ゼロは不可能と確定した。** プロジェクトの `.claude/settings.json` に
+`extraKnownMarketplaces` を書いても効かない。隔離環境で使い捨てのマーケットプレイスを
+作って対照実験した。
+
+| 置いたもの | 結果 |
+|---|---|
+| プロジェクト設定の `hooks`（プラグイン非経由） | **発火する**（対照） |
+| プロジェクト設定の `extraKnownMarketplaces` + `enabledPlugins` | プラグインが読まれない |
+| 同状態で `claude plugin marketplace list` | **マーケットプレイスとして認識すらされない** |
+
+直接フックが効く以上「設定が読まれていない」では説明できない。このキーがプロジェクト
+スコープでは扱われないということ。marketplace の登録はユーザー自身が行う必要がある。
 
 ### 2. ハーネスの充実
 

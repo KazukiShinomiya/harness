@@ -3,8 +3,9 @@
 各プロジェクトへハーネスとガードレールを撒くための道具立て。
 このリポジトリ自体がマーケットプレイスを兼ねる。
 
-| ディレクトリ | 層 | 効く範囲 |
+| ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
+| `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -93,17 +94,39 @@ echo '{"tool_name":"Bash","tool_input":{"command":"rm -f /tmp/x"}}' | python3 ./
 ## インストール
 
 ```bash
-# 自分用（ローカルパスから）
-claude plugin marketplace add ~/repos/harness
-claude plugin install guardrails@harness
-
-# 他人・チーム用（GitHub 公開後）
-claude plugin marketplace add KazukiShinomiya/harness
-claude plugin install guardrails@harness --scope project
+./install.sh                # マーケットプレイス登録 + 両プラグイン導入
+./install.sh --guardrails   # guardrails だけ
+./install.sh --dry-run      # 走らせるコマンドを見るだけ
 ```
 
-`--scope project` はリポジトリの `.claude/settings.json` に `enabledPlugins` を書き、clone した全員へ届く。
-ただしプロジェクトスコープは workspace trust の承認を経てから読み込まれ、background monitors は読み込まれない。
+中身は 2 コマンドなので手で打ってもよい。
+
+```bash
+claude plugin marketplace add KazukiShinomiya/harness   # 自分用ならローカルパスでも可
+claude plugin install guardrails@harness
+```
+
+`--scope project` を付けるとリポジトリの `.claude/settings.json` に `enabledPlugins` が書かれ、
+clone した全員へ届く。ただしプロジェクトスコープは workspace trust の承認を経てから読み込まれ、
+background monitors は読み込まれない。
+
+### 「clone するだけ」にはできない（実測）
+
+`extraKnownMarketplaces` と `enabledPlugins` を対象リポジトリの `.claude/settings.json` に
+コミットしておけば導入手順ゼロになる、と考えたが**ならない**。
+プロジェクトスコープの `extraKnownMarketplaces` は効かない。
+
+隔離環境で使い捨てのマーケットプレイスを作って確かめた。
+
+| 置いたもの | 結果 |
+|---|---|
+| プロジェクト設定の `hooks`（プラグイン非経由） | **発火する**（対照。設定ファイル自体は読まれている） |
+| プロジェクト設定の `extraKnownMarketplaces` + `enabledPlugins` | プラグインが読み込まれない |
+| 同上の状態で `claude plugin marketplace list` | **マーケットプレイスとして認識すらされない** |
+
+直接フックが効く以上「設定が読まれていない」では説明できない。このキーがプロジェクト
+スコープでは扱われないということ。したがって marketplace の登録はユーザー自身が行う必要があり、
+`install.sh` はその 2 コマンドを包んだだけのもの。
 
 ## git 層のガードレール（Claude Code 非依存）
 
@@ -391,6 +414,8 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
       移植元の `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）を削除した
 - [x] `session-harness` も黙らなくなった。読み込めた / 無い / 空 / 読めない / python 不在 /
       `CLAUDE_PLUGIN_ROOT` 未設定 の 6 通りを区別して報告する（全経路を実測）
+- [x] **導入を手順ゼロにはできない。** プロジェクトスコープの `extraKnownMarketplaces` は
+      効かない（対照実験で確定）。`install.sh` で 2 コマンドに包む形に落とした
 - [ ] `githooks/install.sh` をグローバルへ適用するか（現在は harness に `--local` のみ）
 - [ ] `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証
       （`_common.option_list()` は JSON 配列・改行区切り・カンマ区切りの三通りを受けるようにしてある）
