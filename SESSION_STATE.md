@@ -5,11 +5,16 @@
 ## 現在の状況
 
 **「実セッションでフックが発火しない」という前提は誤りだった。取り消す。**
-フックは最初から正常に発火していた。切り分けが完了し、`guardrails` に自己診断
-（`SessionStart`）を実装した。private リポジトリ `KazukiShinomiya/harness`（master）。
+フックは最初から正常に発火していた。切り分けは完了している。
+private リポジトリ `KazukiShinomiya/harness`（master）。harness / dotfiles とも push 済み。
 
-残る問題は一点のみ: **PreToolUse フックの `ask` が確認ダイアログとして表示されない。**
-`deny` は同一経路で確実に効く。フック機構は健全で、`ask` の扱いだけが飛んでいる。
+真の問題は **`ask` という経路そのものが機能していないこと**。PreToolUse フック経由でも
+`permissions` の `ask` ルールでも確認が出ず、`deny` は両経路とも確実に効く（対照実験で確定）。
+これは Claude Code 側の挙動であり、こちらでは直せない。
+
+そこで**一層に賭けるのをやめた**。自己診断（黙って死なせない）、git 層（Claude Code 非依存）、
+`permissions.deny`（宣言的で確実）の 3 つを実装し、いずれも実環境で動作を確認済み。
+公開準備（LICENSE・`<owner>` 置換・上流報告の下書き）も完了している。
 
 ## 前回の戦果
 
@@ -82,6 +87,11 @@
 
 **git フックには問い返す手段が無いので `ask` に倒せない。止める層。** 逃げ道は `--no-verify` のみ。
 
+隔離環境（`HOME` ごと差し替え）で 8 通り実測: 通常コミット○ / `.env` コミット✗ / `--no-verify`○ /
+通常 push○ / 強制 push✗ / ブランチ削除✗ / ローカルフック委譲○ / 保護外ブランチの強制 push○（誤爆なし）。
+さらに `~/repos/harness` へ `--local` 適用した実リポジトリでも `.env` のコミットが止まることを確認。
+**ユーザーのグローバル git 設定には触れていない。**
+
 ### permissions 層（新規）
 
 `permissions/deny-recommended.json` と `apply.py`。`ask` が使えないと確定したため、
@@ -96,19 +106,21 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 `apply.py` は既定 dry-run、`--write` で適用し実体側に `.bak` を残す。既存規則は消さず和集合。
 複製に対して dry-run / `--write` / 冪等性を実測済み（既存の allow 17 件も保たれる）。
 
-隔離環境（`HOME` ごと差し替え）で 7 通り実測済み: 通常コミット○ / `.env` コミット✗ /
-`--no-verify`○ / 通常 push○ / 強制 push✗ / ブランチ削除✗ / ローカルフック委譲○ /
-保護外ブランチの強制 push○（誤爆なし）。**ユーザーのグローバル git 設定には触れていない。**
-
 ## 次の行動
 
-1. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
+1. **グローバル設定からの移行を完了させる（見落としていた積み残し）。**
+   `~/.claude/settings.json` に移植元がまだ残っている——`PreToolUse` の `Bash` matcher 1 件と、
+   `SessionStart` 3 件（うち SESSION_STATE 注入分は `session-harness` と重複）。
+   本来は二重に確認が出るはずだが、**`ask` が出ない現状では二重にも見えない**ので、
+   設定を直接読まないと移行済みか判断できない。dotfiles 側で削除して同期する。
+   dotfiles の drift / freshness チェックは harness と無関係なので残すこと。
+2. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
    提出は外向きの公開行為なので、内容を読んでから決めること。
-2. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。
+3. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。
    残るのはリポジトリの可視性を private から変える操作そのもの。
-3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
+4. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
    `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
-4. `session-harness` プラグインは初版のまま手付かず。
+5. `session-harness` プラグインは初版のまま手付かず。
 
 ### 検証が完了したもの
 
@@ -187,8 +199,10 @@ claude plugin install guardrails@harness --scope project
 
 - **fail-safe を既定とする。** 判定不能なら `ask`。判定器は `guard.sh <判定器名>` 経由で呼び、
   **exit 2 を返さない**（ブロック扱いになるため）。
-- **強制力は hooks にしか置けない。** プラグインの `settings.json` は `agent` と
-  `subagentStatusLine` の 2 キーのみ。`permissions.deny` は*プラグインからは*配布できない。
+- **プラグインの `settings.json` は `agent` と `subagentStatusLine` の 2 キーのみ。**
+  `permissions.deny` は*プラグインからは*配布できない。当初これを理由に強制力を hooks へ
+  全部寄せたが、`ask` が効かないと分かって方針を改めた。`permissions` は dotfiles 経由で
+  配れるので、配布経路としては解決済み。
 - **dotfiles の drift チェックは設計どおり機能している。** 一度これを誤断したので記録に残す。
 - v2.1.220 の validator は `metadata.pluginRoot` による source 短縮形を拒否する。
 - **診断ログは撤去済み。** リポジトリ側・キャッシュ側の `guard.sh` は一致し、probe 行は残っていない。

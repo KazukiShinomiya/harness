@@ -49,7 +49,8 @@ cd ~/repos/harness
 claude --plugin-dir ~/repos/harness/plugins/guardrails
 ```
 
-`/hooks` を開くと `Plugin Hooks` として 2 件（`Bash` と `Edit|Write|NotebookEdit`）が並ぶ。
+`/hooks` を開くと `Plugin Hooks` として 3 件が並ぶ。`PreToolUse` が 2 件
+（`Bash` と `Edit|Write|NotebookEdit`）、`SessionStart` が 1 件（自己診断）。
 
 | # | 指示 | 期待 |
 |---|---|---|
@@ -155,7 +156,10 @@ git config guardrails.disable true      # このリポジトリでは切る
 | 5 | 保護ブランチへの `push -f` | **止まる**（remote が変化しない） |
 | 6 | 保護ブランチの削除 | **止まる**（remote に残る） |
 | 7 | `.git/hooks/pre-commit` への委譲 | 実行される |
-| 9 | 保護**外**ブランチへの `push -f` | 通る（誤爆しない） |
+| 8 | 保護**外**ブランチへの `push -f` | 通る（誤爆しない） |
+
+さらに `~/repos/harness` 自身へ `--local` で適用した状態でも、`.env` のコミットが
+止まることを実リポジトリで確認済み。
 
 `install.sh` は既に別の値が入っている `core.hooksPath` を上書きせず exit 1 する。
 
@@ -171,6 +175,11 @@ permissions/apply.py --to path/to/settings.json
 ```
 
 既存の規則は消さず和集合を取る。冪等なので何度実行してもよい。
+
+雛形は 18 件だが、**全部入れる必要はない**。作者の環境ではディスク破壊系 8 件と電源系 4 件の
+計 12 件だけを適用している。`sudo` は `apt install` 等を任せられなくなるため、
+`Edit(~/.claude/settings.json)` 系は設定作業が全て手動になるため外した。
+`--from` に部分集合の JSON を渡せば群単位で入れられる。
 
 ### 引数を制約するパターンは書かない
 
@@ -262,13 +271,21 @@ rm -f /tmp/guardrails-manual-check   # 確認が出なければ、その環境�
 ユーザーに警告し、`additionalContext` で Claude 側にも「ガードレールは効いていないので
 不可逆操作の前に自分で確認を取れ」と伝える。診断自体が失敗した場合も黙らず「生死不明」と報告する。
 
-正常時も**実行中のプラグインのパスを毎回報告する**。これは飾りではない。下記の落とし穴で
+正常時も**実行中のプラグインのパスを毎回報告する**。これは飾りではない。上記の落とし穴で
 実際に 2 セッションを溶かしたため、どの `guard.sh` が動いているかは常に見えている必要がある。
+
+実体は `plugins/guardrails/scripts/selfcheck.sh`。異常系（`CLAUDE_PLUGIN_ROOT` 未設定、
+判定器が黙る）を壊した複製で実測したうえ、実際の `SessionStart` で発火することも
+`~/repos/harness` から新規セッションを起こして確認済み。
 
 ### プラグインの settings.json では permissions を配れない
 
 Claude Code のプラグインが `settings.json` で供給できるのは `agent` と `subagentStatusLine` の 2 キーのみ。
-`permissions.deny` は配布できないため、強制力はすべて hooks に寄せてある。
+`permissions.deny` は**プラグインからは**配布できない。
+
+当初はこれを理由に強制力をすべて hooks へ寄せていたが、`ask` が機能しないと分かった時点で
+方針を改めた。`permissions` は dotfiles 経由なら配れる（`~/.claude/settings.json` が symlink であるため）
+ので、配布経路としては解決済み。現在は `permissions/` と `githooks/` に分けて持たせている。
 
 ### 判定はトークン境界で行う
 
@@ -289,11 +306,23 @@ Claude Code のプラグインが `settings.json` で供給できるのは `agen
 `${CLAUDE_PLUGIN_ROOT}` はプラグイン更新のたびに変わる。永続させたいものは `${CLAUDE_PLUGIN_DATA}` へ。
 現状どちらのプラグインも状態を持たない。
 
-## 既存のグローバル設定からの移行
+## 既存のグローバル設定からの移行（未完了）
 
-`~/.claude/settings.json` の `hooks` には、ここへ移植した内容と同等のものが残っている。
-両方が有効なあいだは **確認が二重に出る**。`guardrails` を有効化して動作を確認したら、
-グローバル側の `PreToolUse` / `SessionStart`（SESSION_STATE 注入分）を削除すること。
+`~/.claude/settings.json` の `hooks` には、ここへ移植した内容と同等のものが**まだ残っている**。
+現在 `PreToolUse` が 1 件（`Bash` matcher）、`SessionStart` が 3 件（SESSION_STATE 注入と
+dotfiles の drift / freshness チェック）。
+
+本来なら二重に発火して確認が二度出るはずだが、**`ask` が表示されない現状では二重にも見えない**。
+これも「黙って重複している」状態で、移行が済んだかどうかを確認では判断できない。
+残っているかは設定を直接読んで確かめること。
+
+移植済みで削除してよいもの:
+
+- `PreToolUse` の `Bash` matcher → `guardrails` の `irreversible_ops.py` が同等かつ
+  トークン境界で判定するぶん精度が高い
+- `SessionStart` の SESSION_STATE 注入分 → `session-harness` プラグインの担当
+
+dotfiles の drift / freshness チェックは harness とは無関係なので残す。
 
 なお `~/.claude/settings.json` の正本は `~/dotfiles/.claude/settings.json` 側にあるため、
 削除は dotfiles 側で行い同期する。
@@ -307,21 +336,28 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 
 ## TODO
 
+### 決着済み
+
+- [x] 実セッションでフックが発火するか → **発火する。**`CLAUDE_PLUGIN_ROOT` はリポジトリ側を指し、
+      フック経由の stdout に正しい JSON が出ている
+- [x] **`ask` 経路そのものが機能していない。** フック経由でも `permissions` の `ask` ルールでも
+      確認が出ず、`deny` は両経路とも効く（対照実験で確定、v2.1.220、`permissionMode` 非依存）。
+      確実に止めるには `deny` か git 層を使う
+- [x] 多層防御の git 層 → `githooks/`。隔離環境で 8 通り＋実リポジトリで実測
+- [x] `permissions` 雛形 → `permissions/deny-recommended.json` + `apply.py`
+- [x] 自己診断 → `SessionStart` で実際に発火するところまで確認
+
+### 未決・未着手
+
+- [ ] **グローバル設定からの移行が未完了。** `~/.claude/settings.json` に移植元の
+      `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）が残っている。
+      `ask` が出ない現状では二重発火に気付けないので、設定を直接読んで確認すること
+- [ ] `githooks/install.sh` をグローバルへ適用するか（現在は harness に `--local` のみ）
 - [ ] `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証
       （`_common.option_list()` は JSON 配列・改行区切り・カンマ区切りの三通りを受けるようにしてある）
-- [x] 実セッションでフックが発火するか → **発火する。実測済み**
-      （`CLAUDE_PLUGIN_ROOT` はリポジトリ側を指す。フック経由の stdout に正しい JSON が出ている）
-- [ ] **`ask` が確認ダイアログとして表示されない**（v2.1.220、`default` / `acceptEdits` の両方で実測）。
-      `deny` は同一経路で機能するため、フック機構ではなく `ask` の扱いの問題。
-      上流へ報告するか、`deny` 前提の運用に寄せるかは未決
-- [x] `permissions` の `ask` **ルール**も表示されない。同ファイルの `deny` は効く（対照実験で確定）。
-      **`ask` 経路そのものが機能していない。** 確実に止めるには `deny` か git 層を使う
-- [x] 多層防御の git 層 → `githooks/` として実装。隔離環境で 7 通り実測済み
-- [ ] `githooks/install.sh` をグローバルへ適用するかは未決（現在は harness に `--local` 適用のみ）
-- [x] `permissions` 雛形の提供 → `permissions/deny-recommended.json` + `apply.py`
-- [ ] 雛形を実環境へ適用するかは未決（`apply.py --write`）
-- [ ] OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず
+- [ ] OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換
 - [ ] `ask` の件の上流報告。下書きは [`docs/upstream-report-draft.md`](docs/upstream-report-draft.md)。提出は未定
+- [ ] `session-harness` は初版のまま手付かず
 
 ## License
 
