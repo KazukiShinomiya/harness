@@ -114,7 +114,9 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
    残るのはリポジトリの可視性を private から変える操作そのもの。
 3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
    `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
-4. `githooks` をグローバル（`core.hooksPath`）へ広げるかは未決。現在は harness に `--local` のみ。
+4. `githooks` の保護パターンは `.env` `*.pem` `*.key` `*credentials*` 等。
+   正規にコミットするリポジトリに当たったら `guardrails.disable true` か `--no-verify`。
+   保護ブランチが `main` `master` 以外のリポジトリでは `guardrails.protectedBranches` を設定。
 5. `githooks` の保護パターンと `protected_paths.py` は意図的に重複させてある。
    片方を変えたらもう片方も見ること（`_lib.sh` の冒頭に注記済み。`tests/run.sh` が
    主要パターンの両層存在を確認する）。
@@ -144,8 +146,13 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 
 ## 今回適用したもの（実環境）
 
-- **`githooks` は `~/repos/harness` に `--local` のみ。** グローバル（`core.hooksPath`）は未適用で、
-  他リポジトリには一切影響していない。実リポジトリで `.env` のコミットが止まることを確認済み。
+- **`githooks` をグローバル（`core.hooksPath`）へ適用済み。** 全リポジトリで効く。
+  適用前に実測した影響は次のとおり。この機の露出はゼロ（`harness` `tekken-bot` `dotfiles` の
+  いずれも `.git/hooks` を使っていない）、実装していない種類の hook は受け渡しで全て動く、
+  husky v9 以降のリポジトリは local が優先するため影響なし（ただし守られもしない）。
+  適用後、本番設定で通常コミット○ / `.env` コミット✗ / ローカル `commit-msg` 委譲○ を確認。
+  撤回は `githooks/install.sh --uninstall` の一手。
+  `harness` には `--local` も残してある（グローバルを外しても自身は守られる）。
 - **`permissions.deny` は 12 件**（ディスク破壊系 8 + 電源系 4）。`sudo` は `apt install` 等を
   任せられなくなるため**入れていない**。`Edit(~/.claude/settings.json)` 等の自己改変防止も
   今回は見送り（設定作業が全て手動になるため）。`fdisk --version` が拒否されることを実測。
