@@ -102,15 +102,21 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 
 ## 次の行動
 
-1. **自己診断を実セッションで確認する（唯一残った検証）。** `~/repos/harness` から起動し直し、
-   起動時に `guardrails: 有効（...）` が Claude 側の文脈に入るかを見る。
-   壊した複製を `CLAUDE_PLUGIN_ROOT` に食わせる異常系は実測済みだが、実 `SessionStart` は未確認。
-2. `ask` の件を上流へ報告するか判断する。再現手順は README に揃っている
-   （フック経由と permissions ルールの両方、`deny` の対照つき）。
+1. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
+   提出は外向きの公開行為なので、内容を読んでから決めること。
+2. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。
+   残るのはリポジトリの可視性を private から変える操作そのもの。
 3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
-   ただし `chattr` は今回 deny に入れたので、設定は手動になる。
-4. `~/dotfiles` は未 push。harness は push 済み。
-5. 公開準備（LICENSE 未設置、README の `<owner>` 置換、SESSION_STATE を公開対象に含めるか）。
+   `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
+4. `session-harness` プラグインは初版のまま手付かず。
+
+### 検証が完了したもの
+
+- **自己診断は実 `SessionStart` で発火する。** `~/repos/harness` から
+  `claude -p` で新規セッションを起こし、そのセッション自身に文脈を読ませて確認した。
+  `guardrails: 有効（/home/ubuntu/repos/harness/plugins/guardrails、decision=ask）` が入る。
+- `~/repos/harness` `~/dotfiles` とも push 済み。
+- README の `<owner>` は `KazukiShinomiya` に置換済み。
 
 ## 今回適用したもの（実環境）
 
@@ -155,10 +161,11 @@ claude plugin install guardrails@harness --scope project
 | 項目 | 状況 |
 |---|---|
 | `.gitignore` | 問題なし |
-| `SESSION_STATE.md` | **要判断。** 個人の作業ログで絶対パスが入る。公開対象から外すか整理するか |
-| README の `<owner>` | 実名に置換する |
-| LICENSE | 未設置 |
-| 動作検証 | フック発火は確認済み。`ask` 非表示という既知の制約つきで公開可能な状態 |
+| `SESSION_STATE.md` | **公開対象に含める**と決定。誤診の経緯自体がこのリポジトリの価値でもある |
+| README の `<owner>` | `KazukiShinomiya` に置換済み |
+| LICENSE | MIT を設置済み |
+| 動作検証 | 完了。自己診断は実 `SessionStart` で発火することまで確認 |
+| 残り | 可視性を private から変える操作のみ |
 
 ## 設計方針（層を分ける）
 

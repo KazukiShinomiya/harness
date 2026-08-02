@@ -97,7 +97,7 @@ claude plugin marketplace add ~/repos/harness
 claude plugin install guardrails@harness
 
 # 他人・チーム用（GitHub 公開後）
-claude plugin marketplace add <owner>/harness
+claude plugin marketplace add KazukiShinomiya/harness
 claude plugin install guardrails@harness --scope project
 ```
 
@@ -238,6 +238,9 @@ exit code はいずれも正常で、`ask` という決定の扱いだけが飛�
 **したがってこの環境で確実に止められるのは `deny` と git 層だけ。**
 `ask` に依存する仕組みは、動いているように見えて何も守っていない。
 
+上流への報告の下書きが [`docs/upstream-report-draft.md`](docs/upstream-report-draft.md) にある
+（再現手順 2 通りと `deny` の対照つき）。提出するかは未定。
+
 **既定を `ask` から動かしてはいない。** `deny` は判定器が壊れた瞬間に全プロジェクトで作業不能に
 なり、上の fail-safe 方針を撤回することになるため。代わりに**黙っているのをやめる**方向で解いた
 （下記の自己診断）。確実に止めたい環境では `userConfig.decision` を `deny` にすること。
@@ -318,3 +321,8 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 - [x] `permissions` 雛形の提供 → `permissions/deny-recommended.json` + `apply.py`
 - [ ] 雛形を実環境へ適用するかは未決（`apply.py --write`）
 - [ ] OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず
+- [ ] `ask` の件の上流報告。下書きは [`docs/upstream-report-draft.md`](docs/upstream-report-draft.md)。提出は未定
+
+## License
+
+MIT。[LICENSE](LICENSE) を参照。
