@@ -16,7 +16,7 @@
 | プラグイン | `guardrails` `session-harness` とも user スコープで有効 |
 | `permissions.deny` | 12 件（ディスク破壊系 8 + 電源系 4）。`sudo` と設定ファイル保護は**入れていない** |
 | git 層 | `core.hooksPath` をグローバル適用。`harness` には `--local` も残してある |
-| OS/FS 層 | **実装済み・この機へは未適用。** `trash-cli` の導入に sudo が要る |
+| OS/FS 層 | `~/.local/bin/rm` → `rm-guard` を**適用済み**（実測で確認）。`chattr +i` は未適用 |
 
 ## 前回の戦果
 
@@ -39,14 +39,14 @@
 
 ## 次の行動
 
-1. **OS/FS 層をこの機へ適用する。** `trash-cli` の導入だけ `sudo` が要るので手で叩くこと:
-   `sudo apt install trash-cli`。その後 `osfs/install.sh` は sudo 不要。
-   `osfs/install.sh --status` で現況が見える。
-   `chattr +i` は代償が重いので `osfs/immutable.sh status` を読んでから選ぶ。
+1. `chattr +i` は未適用のまま。代償が重い項目ばかりなので保留してある。
+   掛けるなら `osfs/immutable.sh status` を読んでから選ぶこと。
 2. `session-harness` は初版のまま手付かず。`guardrails` は自己診断を持つようになったが、
    あちらは読み込み報告以外ほぼ触っていない。急ぐ理由は無い。
 3. public にしたので、他人が入れられる状態になった。`install.sh` の手順を外から一度
    なぞってみると穴が見つかるかもしれない（未実施）。
+
+**積み残しは無い。** 上の 3 件はいずれも「やらない理由がある」か「急がない」もの。
 
 ## 決定事項・メモ
 

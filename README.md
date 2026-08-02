@@ -581,9 +581,11 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 - [x] **`userConfig` の `multiple: true` はカンマ区切りだった**（生バイトで実測、v2.1.220）。
       `_common.option_list()` をそれに合わせて単純化した。あわせて「設定は新セッションでしか
       読まれない」「プロジェクトスコープでは効かない」ことも判明（[詳細](#userconfig-の-multiple-true-はカンマ区切り実測)）
-- [x] **OS/FS 層を用意した** → `osfs/`。`rm-guard`（PATH 前方に置く `rm` の置き換え）と
-      `immutable.sh`（`chattr +i` の候補提示）。**この機への適用はまだ**——`trash-cli` の
-      導入に sudo が要るため、`sudo apt install trash-cli && osfs/install.sh` は手で叩くこと
+- [x] **OS/FS 層を用意し、この機へ適用した** → `osfs/`。`rm-guard`（PATH 前方に置く `rm` の
+      置き換え）と `immutable.sh`（`chattr +i` の候補提示）。設置後に実測で確認済み——
+      `rm` はゴミ箱経由になり、`rm -rf` でディレクトリごと入り、`trash-restore` で中身ごと
+      戻り、`HARNESS_RM_REAL=1` はゴミ箱を経由せず本物の `rm` を呼ぶ
+- [ ] `chattr +i` はまだ何も掛けていない。代償が重い項目ばかりなので保留（`immutable.sh status`）
 - [x] **`ask` の件は上流へ報告済み。** ただし新規 issue ではない——同じ報告が既に 15 件以上
       上がっていたため、最も近い [#79356](https://github.com/anthropics/claude-code/issues/79356)
       へコメントした（[投稿](https://github.com/anthropics/claude-code/issues/79356#issuecomment-5157316941)）。
