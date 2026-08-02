@@ -102,20 +102,25 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 
 ## 次の行動
 
-1. **未コミット変更のレビューとコミット。** `~/repos/harness`（selfcheck 一式・`githooks/` 一式・
-   README・hooks.json）と `~/dotfiles`（プラグインのインストールで settings.json に入った差分）。
-2. **`githooks/install.sh` を実環境へ適用するか決める。** `core.hooksPath` は**全リポジトリ**に効き、
-   `.git/hooks` を無効化する（委譲で対処済みだが影響範囲は広い）。まず `--local` で
-   `~/repos/harness` 自身に入れて使い心地を見るのが安全。
-3. **自己診断を実セッションで確認する。** `~/repos/harness` から起動し直し、
+1. **自己診断を実セッションで確認する（唯一残った検証）。** `~/repos/harness` から起動し直し、
    起動時に `guardrails: 有効（...）` が Claude 側の文脈に入るかを見る。
-   壊した複製を `CLAUDE_PLUGIN_ROOT` に食わせる検証は済んでいるが、実セッションは未確認。
-4. **`permissions/apply.py --write` を実環境へ適用するか決める。** 雛形は作成済み。
-   dry-run で 18 件が増えることを確認済み。`deny` は問い返しが無いので、
-   一覧を見て「普段 Claude に使わせているか」で取捨してから入れる。
-5. `ask` の件を上流へ報告するか判断する。再現手順は README に揃っている
+   壊した複製を `CLAUDE_PLUGIN_ROOT` に食わせる異常系は実測済みだが、実 `SessionStart` は未確認。
+2. `ask` の件を上流へ報告するか判断する。再現手順は README に揃っている
    （フック経由と permissions ルールの両方、`deny` の対照つき）。
-6. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
+3. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
+   ただし `chattr` は今回 deny に入れたので、設定は手動になる。
+4. `~/dotfiles` は未 push。harness は push 済み。
+5. 公開準備（LICENSE 未設置、README の `<owner>` 置換、SESSION_STATE を公開対象に含めるか）。
+
+## 今回適用したもの（実環境）
+
+- **`githooks` は `~/repos/harness` に `--local` のみ。** グローバル（`core.hooksPath`）は未適用で、
+  他リポジトリには一切影響していない。実リポジトリで `.env` のコミットが止まることを確認済み。
+- **`permissions.deny` は 12 件**（ディスク破壊系 8 + 電源系 4）。`sudo` は `apt install` 等を
+  任せられなくなるため**入れていない**。`Edit(~/.claude/settings.json)` 等の自己改変防止も
+  今回は見送り（設定作業が全て手動になるため）。`fdisk --version` が拒否されることを実測。
+- **`extraKnownMarketplaces` の `path` はチルダ表記に変更。** `~/repos/harness` が展開されて
+  プラグインまで解決されることを `claude plugin list` で確認。絶対パスだと他マシンで壊れる。
 
 ## 今後の3本柱
 
