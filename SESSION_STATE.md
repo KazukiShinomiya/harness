@@ -110,17 +110,25 @@ Claude Code 側で効く唯一の手段として `deny` の雛形を用意した
 
 1. **グローバル設定からの移行を完了させる（見落としていた積み残し）。**
    `~/.claude/settings.json` に移植元がまだ残っている——`PreToolUse` の `Bash` matcher 1 件と、
-   `SessionStart` 3 件（うち SESSION_STATE 注入分は `session-harness` と重複）。
-   本来は二重に確認が出るはずだが、**`ask` が出ない現状では二重にも見えない**ので、
-   設定を直接読まないと移行済みか判断できない。dotfiles 側で削除して同期する。
-   dotfiles の drift / freshness チェックは harness と無関係なので残すこと。
-2. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
+   `SessionStart` 3 件。本来は二重に確認が出るはずだが、**`ask` が出ない現状では
+   二重にも見えない**ので、設定を直接読まないと移行済みか判断できない。
+
+   **順序を間違えると SESSION_STATE が黙って読まれなくなる。** `session-harness` は
+   まだインストールされておらず、注入を担っているのはグローバル側のフックただ一つ。
+   先に `claude plugin install session-harness@harness` で引き継ぎ先を立て、
+   新規セッションで注入を確認してから dotfiles 側を消すこと。
+   落ちても何も表示されないので、消してから気付くことはできない。
+   dotfiles の drift / freshness チェックは harness と無関係なので残す。
+2. **`session-harness` に自己診断が無い。** `session_state.py` は例外を握り潰して
+   黙って諦める（`except Exception: sys.exit(0)`）。`guardrails` で潰したのと同じ型の問題。
+   害は小さい（偽の安心を作らない）が、今朝まさに SESSION_STATE を読まないまま
+   セッションが始まっている。`guardrails` の `selfcheck` と同じ枠組みを移植できる。
+3. **`docs/upstream-report-draft.md` を提出するか判断する。** 下書きは完成している。
    提出は外向きの公開行為なので、内容を読んでから決めること。
-3. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。
+4. **public への切り替え。** LICENSE・`<owner>` 置換・SESSION_STATE の公開可否はすべて片付いた。
    残るのはリポジトリの可視性を private から変える操作そのもの。
-4. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
+5. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
    `chattr` は deny に入れたので設定は手動になる。`trash-cli` は今回見送った。
-5. `session-harness` プラグインは初版のまま手付かず。
 
 ### 検証が完了したもの
 

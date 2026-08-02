@@ -316,13 +316,30 @@ dotfiles の drift / freshness チェック）。
 これも「黙って重複している」状態で、移行が済んだかどうかを確認では判断できない。
 残っているかは設定を直接読んで確かめること。
 
-移植済みで削除してよいもの:
+| グローバル側 | 引き継ぎ先 | 削除してよいか |
+|---|---|---|
+| `PreToolUse`（`Bash` matcher） | `guardrails` の `irreversible_ops.py` | **可**。トークン境界で判定するぶん精度も高い |
+| `SessionStart`（SESSION_STATE 注入） | `session-harness` の `session_state.py` | **順序に注意**（下記） |
+| `SessionStart`（dotfiles drift / freshness） | なし | 残す。harness とは無関係 |
 
-- `PreToolUse` の `Bash` matcher → `guardrails` の `irreversible_ops.py` が同等かつ
-  トークン境界で判定するぶん精度が高い
-- `SessionStart` の SESSION_STATE 注入分 → `session-harness` プラグインの担当
+### 順序を間違えると SESSION_STATE が黙って読まれなくなる
 
-dotfiles の drift / freshness チェックは harness とは無関係なので残す。
+**`session-harness` は現在インストールされていない。** 有効なのは `guardrails` だけで、
+SESSION_STATE の注入を担っているのは**グローバル設定のフックただ一つ**。
+先にグローバル側を消すと、引き継ぎ先が存在しないまま注入が落ちる。
+
+しかも落ちても**何も表示されない**。次のセッションが「前回の経緯を知らないまま」始まるだけで、
+気付く手がかりが無い。必ずこの順で行うこと。
+
+```bash
+claude plugin install session-harness@harness   # 先に引き継ぎ先を立てる
+# 新規セッションを起こし、SESSION_STATE が文脈に入ることを確認してから
+# dotfiles 側でグローバルの SessionStart（注入分）を削除する
+```
+
+`session_state.py` はグローバル側と等価以上（`userConfig.state_file` でファイル名を変えられ、
+空ファイルも弾く）。ただし例外を握り潰して黙って諦める作りなので、`guardrails` と違い
+自己診断が無い。落ちたことは分からない。
 
 なお `~/.claude/settings.json` の正本は `~/dotfiles/.claude/settings.json` 側にあるため、
 削除は dotfiles 側で行い同期する。
@@ -351,7 +368,10 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 
 - [ ] **グローバル設定からの移行が未完了。** `~/.claude/settings.json` に移植元の
       `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）が残っている。
-      `ask` が出ない現状では二重発火に気付けないので、設定を直接読んで確認すること
+      `ask` が出ない現状では二重発火に気付けないので、設定を直接読んで確認すること。
+      **`session-harness` を先にインストールしないと SESSION_STATE の注入が落ちる**
+- [ ] `session-harness` に自己診断が無い。例外を握り潰して黙って諦めるため、
+      SESSION_STATE が読まれなくても気付けない。`guardrails` と同じ問題を抱えている
 - [ ] `githooks/install.sh` をグローバルへ適用するか（現在は harness に `--local` のみ）
 - [ ] `userConfig` の `multiple: true` が hook 環境変数へどう直列化されるか未検証
       （`_common.option_list()` は JSON 配列・改行区切り・カンマ区切りの三通りを受けるようにしてある）
