@@ -82,6 +82,20 @@
 
 **git フックには問い返す手段が無いので `ask` に倒せない。止める層。** 逃げ道は `--no-verify` のみ。
 
+### permissions 層（新規）
+
+`permissions/deny-recommended.json` と `apply.py`。`ask` が使えないと確定したため、
+Claude Code 側で効く唯一の手段として `deny` の雛形を用意した。
+
+**引数を制約するパターンは書かない。** 公式ドキュメントが脆いと明記しており、
+`Bash(git push --force *)` は `-f` にも `--force-with-lease` にも当たらない。
+コマンド名単位（`sudo` `dd` `mkfs` `fdisk` `shred` `chattr` `shutdown` 等）に絞り、
+引数レベルは git 層に任せる。`~/.claude/settings.json` への `Edit` も拒否対象に入れてある
+（symlink 実体の `~/dotfiles/...` も併記。片方だけでは迂回できる）。
+
+`apply.py` は既定 dry-run、`--write` で適用し実体側に `.bak` を残す。既存規則は消さず和集合。
+複製に対して dry-run / `--write` / 冪等性を実測済み（既存の allow 17 件も保たれる）。
+
 隔離環境（`HOME` ごと差し替え）で 7 通り実測済み: 通常コミット○ / `.env` コミット✗ /
 `--no-verify`○ / 通常 push○ / 強制 push✗ / ブランチ削除✗ / ローカルフック委譲○ /
 保護外ブランチの強制 push○（誤爆なし）。**ユーザーのグローバル git 設定には触れていない。**
@@ -96,12 +110,12 @@
 3. **自己診断を実セッションで確認する。** `~/repos/harness` から起動し直し、
    起動時に `guardrails: 有効（...）` が Claude 側の文脈に入るかを見る。
    壊した複製を `CLAUDE_PLUGIN_ROOT` に食わせる検証は済んでいるが、実セッションは未確認。
-4. **`permissions.deny` 雛形の作成。** `ask` が使えないと確定したので、確実に止めたいものは
-   `deny` に置くしかない。ただし `deny` は問い返しが無いぶん、広く書くと作業が止まる。
-   本当に取り返しがつかないものだけに絞る（`git push --force`、`rm -rf ~` 等）。
-   dotfiles 経由で配れる。
+4. **`permissions/apply.py --write` を実環境へ適用するか決める。** 雛形は作成済み。
+   dry-run で 18 件が増えることを確認済み。`deny` は問い返しが無いので、
+   一覧を見て「普段 Claude に使わせているか」で取捨してから入れる。
 5. `ask` の件を上流へ報告するか判断する。再現手順は README に揃っている
    （フック経由と permissions ルールの両方、`deny` の対照つき）。
+6. OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず。
 
 ## 今後の3本柱
 
@@ -120,8 +134,16 @@ claude plugin install guardrails@harness --scope project
 
 ### 2. ハーネスの充実
 
-自己診断と git 層は実装した。残りは `permissions` 雛形の提供（dotfiles 経由で配れる）。
-OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換はまだ手付かず。
+自己診断・git 層・`permissions` 雛形まで実装した。残りは OS/FS 層（`chattr +i`）と
+`trash-cli` による `rm` の置換。
+
+**層ごとに得意な粒度が違う**という整理に至った。同じことを複数層でやろうとしない。
+
+| 層 | 粒度 | 担当 |
+|---|---|---|
+| `permissions.deny` | コマンド名単位 | `sudo` `dd` `mkfs` 等、使わせないと言い切れるもの |
+| git フック | 引数・内容単位 | 強制 push、秘密情報のコミット |
+| プラグイン | 動的判定 | 文脈に応じた判断（ただし `ask` が効かない環境では無力） |
 
 ### 3. 公開準備
 

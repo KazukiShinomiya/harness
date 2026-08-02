@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "確実に止めたいものを置く層。ask が機能しない環境（README 参照）では、",
+    "Claude Code 側で本当に効くのは deny だけになる。",
+    "",
+    "方針: 引数を制約するパターンは書かない。公式ドキュメントが明記しているとおり",
+    "脆く、git push --force に対する -f のような変種で簡単に抜ける。",
+    "引数レベルの判定は githooks/ の git 層に任せ、ここは『そのコマンド自体を",
+    "エージェントに使わせない』と言い切れるものだけに絞る。",
+    "",
+    "deny は問い返しが無い。広げすぎると作業が止まり、結局まるごと外される。",
+    "ここに足すときは『自分が普段 Claude に使わせているか』で判断すること。"
+  ],
+
+  "permissions": {
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(doas:*)",
+      "Bash(su:*)",
+
+      "Bash(dd:*)",
+      "Bash(mkfs:*)",
+      "Bash(mkfs.ext4:*)",
+      "Bash(mkfs.xfs:*)",
+      "Bash(fdisk:*)",
+      "Bash(parted:*)",
+      "Bash(shred:*)",
+      "Bash(chattr:*)",
+
+      "Bash(shutdown:*)",
+      "Bash(reboot:*)",
+      "Bash(halt:*)",
+      "Bash(poweroff:*)",
+
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/settings.local.json)",
+      "Edit(~/dotfiles/.claude/settings.json)"
+    ]
+  }
+}

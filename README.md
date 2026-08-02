@@ -1,8 +1,13 @@
 # harness
 
 各プロジェクトへハーネスとガードレールを撒くための道具立て。
-Claude Code プラグイン集（`plugins/`）と、Claude Code に依存しない git フック（`githooks/`）から成る。
 このリポジトリ自体がマーケットプレイスを兼ねる。
+
+| ディレクトリ | 層 | 効く範囲 |
+|---|---|---|
+| `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
+| `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
+| `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
 
 **一層に賭けない。** プラグイン側の強制力は Claude Code の実装に左右される（実際、`ask` が
 黙って表示されなくなる事例に当たった）。本当に失いたくないものは git 層で守り、
@@ -152,6 +157,46 @@ git config guardrails.disable true      # このリポジトリでは切る
 
 `install.sh` は既に別の値が入っている `core.hooksPath` を上書きせず exit 1 する。
 
+## permissions 層（deny のみ）
+
+`ask` が機能しない以上、Claude Code 側で本当に効くのは `deny` だけになる。
+`permissions/deny-recommended.json` がその雛形で、`permissions/apply.py` で差分マージする。
+
+```bash
+permissions/apply.py                    # dry-run。何が増えるか見るだけ
+permissions/apply.py --write            # 適用（実体側に .bak を残す）
+permissions/apply.py --to path/to/settings.json
+```
+
+既存の規則は消さず和集合を取る。冪等なので何度実行してもよい。
+
+### 引数を制約するパターンは書かない
+
+公式ドキュメントが明記しているとおり、Bash の引数を絞る規則は脆い。
+`Bash(git push --force *)` は `git push -f` にも `--force-with-lease` にも、
+オプション順を変えた形にも当たらない。
+
+そこで**この層はコマンド名単位に絞る**。`sudo` `dd` `mkfs` `fdisk` `shred` `chattr`
+`shutdown` など、「そのコマンド自体をエージェントに使わせない」と言い切れるものだけを置く。
+引数レベルの判定（強制 push、秘密情報のコミット）は git 層が担当する。**層ごとに
+得意な粒度が違う**ので、同じことを両方でやろうとしないこと。
+
+`deny` は問い返しが無い。広げすぎると作業が止まり、結局まるごと外される。
+足すときは「自分が普段 Claude に使わせているか」で判断する。
+
+### 書き方の注意
+
+- **ファイル系は `Edit(...)` を使う。** `Write(...)` `NotebookEdit(...)` `MultiEdit(...)` の
+  パス規則は受理されるが**参照されない**（起動時に警告が出る）。`Edit(...)` は
+  ファイル編集ツール全体に効く
+- **絶対パスは `//` から始める。** 単一の `/` は「設定ファイルの位置からの相対」を意味する。
+  ホームからは `~/` が使える
+- **`~/.claude/settings.json` が symlink なら実体側も併記する。** 雛形は
+  `~/dotfiles/.claude/settings.json` も同時に拒否している。片方だけでは迂回できてしまう
+- **`deny` は先頭の環境変数代入を跨いで一致する。** `FOO=bar rm -rf tmp/` も `Bash(rm *)` に当たる
+- **ラッパーは剥がされない。** `npx` `docker exec` `devbox run` 等は内側のコマンドの規則で
+  覆えない。必要ならラッパーごと規則を書く
+
 ## 設計上の決定
 
 ### fail-safe（判定不能なら ask）
@@ -267,5 +312,7 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 - [x] `permissions` の `ask` **ルール**も表示されない。同ファイルの `deny` は効く（対照実験で確定）。
       **`ask` 経路そのものが機能していない。** 確実に止めるには `deny` か git 層を使う
 - [x] 多層防御の git 層 → `githooks/` として実装。隔離環境で 7 通り実測済み
-- [ ] `githooks/install.sh` を実環境へ適用するかは未決（`core.hooksPath` は全リポジトリに効く）
-- [ ] `permissions` 雛形の提供（dotfiles 経由で配れる。プラグインからは配れない）
+- [ ] `githooks/install.sh` をグローバルへ適用するかは未決（現在は harness に `--local` 適用のみ）
+- [x] `permissions` 雛形の提供 → `permissions/deny-recommended.json` + `apply.py`
+- [ ] 雛形を実環境へ適用するかは未決（`apply.py --write`）
+- [ ] OS/FS 層（`chattr +i`）と `trash-cli` による `rm` の置換は手付かず
