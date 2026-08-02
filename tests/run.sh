@@ -15,7 +15,10 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 GUARD="$ROOT/plugins/guardrails"
 SESS="$ROOT/plugins/session-harness"
 TMP=$(mktemp -d) || exit 1
-trap 'rm -rf "$TMP"' EXIT INT TERM
+# 後始末は必ず本物の rm で行う。この機には osfs/rm-guard が入っていることがあり、
+# 素の `rm` だとテストの残骸が丸ごとゴミ箱へ送られる（しかも隔離用の偽 HOME ごと
+# 移そうとして失敗し、残骸が消えない）。
+trap 'HARNESS_RM_REAL=1 /usr/bin/rm -rf "$TMP"' EXIT INT TERM
 
 pass=0
 fail=0
@@ -192,8 +195,10 @@ contains 'オプションを剥がしてパスを渡す' 'a.txt' "$(cat "$TRASH_
 contains '空白を含むパスを壊さない' 'b with space.txt' "$(cat "$TRASH_LOG")"
 
 # ゴミ箱が使えないときに本物の rm へ落ちてしまうと、黙って破壊することになる。
+# この機に trash-cli が入っていても「無い」状況を作れるよう PATH ごと外す
+# （rm-guard はこの判定までシェル組み込みと絶対パスしか使わない）。
 : > "$TRASH_LOG"
-PATH=/usr/bin:/bin sh "$RM" -rf "$TMP/rmwork/a.txt" >/dev/null 2>&1
+PATH=/nonexistent sh "$RM" -rf "$TMP/rmwork/a.txt" >/dev/null 2>&1
 if [ -e "$TMP/rmwork/a.txt" ]; then
 	ok 'trash-put が無ければ消さずに止まる'
 else
@@ -224,7 +229,7 @@ OSFS_HOME="$TMP/osfshome"
 mkdir -p "$OSFS_HOME/.local/bin"
 
 # ゴミ箱が無い状態で設置すると、あらゆる rm が止まるようになる。設置を拒むこと。
-out=$(HOME="$OSFS_HOME" PATH=/usr/bin:/bin sh "$ROOT/osfs/install.sh" 2>&1)
+out=$(HOME="$OSFS_HOME" PATH=/nonexistent sh "$ROOT/osfs/install.sh" 2>&1)
 [ -e "$OSFS_HOME/.local/bin/rm" ] && ng 'trash-cli 不在でも設置した' \
 	|| ok 'trash-cli が無ければ設置しない'
 
