@@ -4,8 +4,8 @@
 
 ## 現在の状況
 
-多層防御が**四層**になった。private リポジトリ `KazukiShinomiya/harness`（master）。
-`tests/run.sh` は 56 項目すべて成功。
+多層防御が**四層**になった。`tests/run.sh` は 56 項目すべて成功。
+**リポジトリは public**（<https://github.com/KazukiShinomiya/harness>）。master に push 済み。
 
 **`ask` という経路そのものが機能しない**（Claude Code v2.1.220）。PreToolUse フック経由でも
 `permissions` の `ask` ルールでも確認が出ず、`deny` は両経路とも効く。対照実験で確定した。
@@ -39,12 +39,14 @@
 
 ## 次の行動
 
-1. **public への切り替え。** 準備は全て済んでいる。残るのは可視性を変える操作そのもの。
-   外向きの行為なので君が決めること。
-2. **OS/FS 層をこの機へ適用する。** `sudo` が要るので手で叩くこと:
-   `sudo apt install trash-cli && osfs/install.sh`。`osfs/install.sh --status` で現況が見える。
+1. **OS/FS 層をこの機へ適用する。** `trash-cli` の導入だけ `sudo` が要るので手で叩くこと:
+   `sudo apt install trash-cli`。その後 `osfs/install.sh` は sudo 不要。
+   `osfs/install.sh --status` で現況が見える。
    `chattr +i` は代償が重いので `osfs/immutable.sh status` を読んでから選ぶ。
-3. `session-harness` は初版のまま手付かず。
+2. `session-harness` は初版のまま手付かず。`guardrails` は自己診断を持つようになったが、
+   あちらは読み込み報告以外ほぼ触っていない。急ぐ理由は無い。
+3. public にしたので、他人が入れられる状態になった。`install.sh` の手順を外から一度
+   なぞってみると穴が見つかるかもしれない（未実施）。
 
 ## 決定事項・メモ
 
