@@ -4,7 +4,8 @@
 
 ## 現在の状況
 
-多層防御が**四層**になった。`tests/run.sh` は 67 項目すべて成功。
+多層防御が**四層**になった。`tests/run.sh` は 85 項目すべて成功し、**push と PR のたびに
+GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 **リポジトリは public**（<https://github.com/KazukiShinomiya/harness>）。master に push 済み。
 
 **`ask` という経路そのものが機能しない**（Claude Code v2.1.220）。PreToolUse フック経由でも
@@ -49,25 +50,37 @@
   （`tee` `cp` `mv` `install` `ln` `truncate` `dd` `sed -i`）の引数を拾う。
   読み取りは対象にしない——`cat .env` まで拾うと確認だらけになり読まれなくなる
 
+**CI を入れ、この機に残る三層を全部入れた。**
+
+- **CI**（`.github/workflows/tests.yml`）。push と PR のたびに ubuntu-latest で
+  `tests/run.sh`。85 項目すべて成功することを実際の run で確認済み
+  （Python 3.12.3 / git 2.54.0、11 秒）
+- **git 層** — `core.hooksPath` をグローバル適用
+- **permissions 層** — **全 18 件**を適用（`sudo`/`su`/`doas` と設定ファイル保護も含む。
+  旧機の 12 件構成とは違う。これは君の判断）。既存の `allow` 17 件は無傷、
+  退避は `~/.claude/settings.json.bak`
+- **OS/FS 層** — `trash-cli` 0.23.11.10 を apt で導入し `rm-guard` を設置。
+  実測で確認した——`rm` した内容が生バイトのままゴミ箱にあり、元の場所からは消えている
+
+順番に意味がある。**`Bash(sudo:*)` を deny する前に `trash-cli` を入れること。**
+deny は再起動不要で即座に効くため、先に入れるとエージェント経由の `sudo` が塞がる。
+
 ## 次の行動
 
-1. **この機に三層を入れる。** 診断が「未適用」と言い続けている状態。入れるなら
-   `githooks/install.sh`、`permissions/apply.py --write`、`osfs/install.sh`
-   （`osfs` は先に `sudo apt install trash-cli`）。
-   入れないなら「入れない」と決めること——診断が毎回報告するので、放っておくと慣れて読まなくなる。
-2. **CI が無い。** public なのに `.github/` が無く、`tests/run.sh` を通すのは人間の記憶だけ。
-   「口約束でなく仕組み」という方針とここだけ矛盾している。
-3. **`protected_paths` の Bash 対応は塞ぎ切っていない。** シェルは任意の書き込み方を
+1. **`protected_paths` の Bash 対応は塞ぎ切っていない。** シェルは任意の書き込み方を
    許すので静的には拾えない（`python -c "open('.env','w')"`、`eval`、`exec 3>`）。
    広げるより、本当に失いたくないものを git 層と OS/FS 層へ寄せる方が筋がいい。
    **オプションの無い `rm file` も発火しない**——日常的すぎるのと、戻す役目は
    `rm-guard` が持っているため。変えるなら `find_rm_hit()` の 1 行。
-4. `chattr +i` は未適用のまま。代償が重い項目ばかりなので保留してある。
+2. `chattr +i` は未適用のまま。代償が重い項目ばかりなので保留してある。
    掛けるなら `osfs/immutable.sh status` を読んでから選ぶこと。
-   **`~/.ssh/authorized_keys` を固める案は調査のうえ見送った**——ファイルが存在せず、
-   `openssh-server` 自体が未導入（`sshd` も動いていない）。守る対象がまだ無い。
-5. `session-harness` は初版のまま手付かず。急ぐ理由は無い。
-6. public にしたので、他人が入れられる状態になった。`install.sh` は四層のうち
+   **`~/.ssh/authorized_keys` を固める案は見送ったままでよい。ただし理由が機ごとに違う。**
+   この機では `openssh-server` は導入済み（1:9.6p1）、`ssh` サービスは **active**、
+   `authorized_keys` も**存在する**（0 バイト・鍵ゼロ）。「未導入だから守る対象が無い」
+   という以前の記述はこの機には当てはまらない。それでも結論は同じ——空のまま固めると
+   自分が鍵を足すときに詰まるだけ。鍵を入れたら、そのとき固めればよい。
+3. `session-harness` は初版のまま手付かず。急ぐ理由は無い。
+4. public にしたので、他人が入れられる状態になった。`install.sh` は四層のうち
    プラグイン層しか入れないため、外からなぞると残り三層を落とす（未検証）。
 
 ## 決定事項・メモ
@@ -76,6 +89,17 @@
   「今どうなっているか」は自己診断に言わせ、ここには「なぜそう決めたか」だけ残す。
 - **未適用は警告しない。故障だけ警告する。** 未適用で毎セッション鳴らすと、やがて誰も
   読まなくなり、本当の故障も一緒に見落とす。
+- **状態表を消しても、決定の根拠に混ざった機械固有の事実は残る。** 「`sshd` が動いていない
+  から `authorized_keys` は守らなくていい」のような判断は、機械が変われば前提から崩れる。
+  結論だけ移して前提を確かめ直さないと、正しい結論を間違った理由で持ち続けることになる。
+  次に判断を書くときは「どの機で測ったか」を添えること。
+- **`.github/workflows/` を含む push は HTTPS リモートでは通らない。** OAuth トークンに
+  `workflow` スコープが無いため GitHub が弾く。SSH なら通る（`ssh -T git@github.com` で
+  認証は確認済み）。恒久的に直すなら
+  `git remote set-url origin git@github.com:KazukiShinomiya/harness.git`。
+- **`!` 経由の `sudo` はパスワードを読めない。** TTY が無いため。この機は passwordless
+  sudo ではないので、`sudo` が要るものは実端末で打つしかない。`python3-venv` も不完全で、
+  sudo 抜きに pip で入れる逃げ道も無かった。
 - **黙らないことと止めることは別。** 危険でないものを止める必要は無いが、黙ってよいわけでもない。
   `session-harness` は失敗も不在も報告するが、止めはしない。
 - **OS/FS 層だけ思想が違う。止めずに取り消せるようにする。** `rm` は日常的に使うので確認を
