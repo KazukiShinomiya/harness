@@ -13,6 +13,33 @@
 
 投稿: <https://github.com/anthropics/claude-code/issues/79356#issuecomment-5157316941>
 
+## 続報（2026-08-10、v2.1.226 で再検証）
+
+**下書きの主張は半分だけ有効になった。** 同じ 2 通りの再現手順を v2.1.226 で撃ち直した。
+
+| 経路 | v2.1.220 / WSL2（Linux 5.15） | v2.1.226 / ネイティブ（Linux 6.8） |
+|---|---|---|
+| Reproduction 1（PreToolUse フックの `ask`） | 素通し | **確認ダイアログが出る** |
+| Reproduction 2（`permissions.ask` ルール） | 素通し | 素通し（変化なし） |
+
+つまり "Only the `ask` decision is dropped"（経路によらず `ask` そのものが死んでいる）
+という結論は正しくない。**同一機・同一版（右列）で経路によって挙動が割れる。**
+`permissions.ask` ルートだけが素通しになる。
+
+**ただし「v2.1.226 で修正された」とは書けない。** 列をまたぐと版と機が同時に変わって
+いるため、Reproduction 1 が通るようになった原因を切り分けられない。上流へ出すときは
+**経路差（同一条件で確定している）を主張し、修正の帰属は主張しない**こと。
+
+測り方の注意を二つ、実際に踏んだので記録しておく。
+
+- **対話セッションでしか測れない。** `claude -p`（非対話）は確認を出す相手がいないため
+  `ask` を `denied` に倒す。debug ログに `Hook result has permissionBehavior=ask` と
+  `Bash tool permission denied` が並んで残る。この `denied` を「直った」と読むと誤る。
+  Reproduction 1 の v2.1.226 の行は、人間が対話セッションで目視して埋めた。
+- **単独コマンドで撃つ。** 複合コマンド（`probe --check; echo "rc=$?"`）にすると後半が
+  `allow` ルールに一致し、素通りが `ask` の不発によるのか `allow` の勝ちによるのか
+  切り分けられなくなる。`deny` は `allow` に勝つので、対照側だけが無傷に見えてしまう。
+
 以下は元の下書き。事実と再現手順だけを書き、推測は "Speculation" 節に隔離してある。
 コメントとして出したのは Environment / Reproduction / Impact / Workaround の各節を
 圧縮したもので、Speculation は載せていない。

@@ -10,8 +10,9 @@
     診断ログを仕込んで「フックが発火しない」と 2 セッション誤診した。
     → 有効な CLAUDE_PLUGIN_ROOT を毎回明示する。
   - PreToolUse フックの permissionDecision "ask" が Claude Code 側で表示されず、
-    ガードレールが素通しになっていた（deny は同一経路で機能する）。
-    → decision が ask のときは、その旨と手動確認の手順を添える。
+    ガードレールが素通しになっていた（v2.1.220。deny は同一経路で機能する）。
+    別の機の v2.1.226 では表示されたが、配布先の環境は選べない。
+    → decision が ask のときは、版で挙動が変わることと手動確認の手順を添える。
   - 診断対象がプラグイン層だけだったため、**permissions 層が一件も適用されて
     いない状態が何セッションも気付かれずに続いた**。SESSION_STATE には「適用済み」と
     書いてあり、記録の方が実態から外れていた。
@@ -218,7 +219,7 @@ def check_permissions_layer():
     """deny 規則が実際に入っているか。
 
     プラグインからは permissions を配れないため、この層だけは手で入れる必要がある。
-    入れ忘れても何も起きない——ask が表示されない環境では、この層の不在が
+    入れ忘れても何も起きない——ask が表示されない版（v2.1.220 等）では、この層の不在が
     そのまま「何も止まらない」に直結する。
     """
     total = 0
@@ -329,14 +330,15 @@ def emit(plugin_problems, layers, root):
 
     if current == "ask":
         caveat = (
-            "注意: \"ask\" は Claude Code 側で確認ダイアログとして表示されない場合がある。"
-            "v2.1.220 では PreToolUse フック経由でも permissions の ask ルールでも表示されず、"
-            "一方 deny は両経路とも確実に効くことを実測した"
-            "（permissionMode は default / acceptEdits のいずれでも同じ）。"
-            "表示されるかは次で手動確認できる:\n"
+            "注意: \"ask\" の確認ダイアログが表示されない環境がある。"
+            "実測（Linux/Bash）では v2.1.220 の WSL2 機で PreToolUse 経由も permissions の "
+            "ask ルールも素通り、v2.1.226 のネイティブ Linux 機では PreToolUse 経由だけが表示された。"
+            "permissions の ask ルールはどちらでも表示されない。deny は全経路・全環境で効く。"
+            "この環境での挙動は対話セッションで一度だけ確かめられる"
+            "（ファイルは存在しないので Yes と答えても副作用は無い）:\n"
             "  rm -f /tmp/guardrails-manual-check\n"
             "確認が出なければ、この環境で guardrails は検出しても素通しになる。"
-            "確実に止めたいものは decision=deny か git 層（githooks/）へ寄せること。"
+            "環境に依存しない強制力が要るものは decision=deny か git 層（githooks/）へ寄せること。"
         )
         agent_msg += "\n" + caveat
         if user_msg:

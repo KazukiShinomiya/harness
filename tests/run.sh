@@ -195,6 +195,28 @@ printf '#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\n' > "$TMP/broken/s
 out=$(sc "$TMP/broken")
 contains '判定器が黙ると警告する' 'systemMessage' "$out"
 
+# ask は環境によって確認ダイアログが出ない（v2.1.220 の WSL2 機で素通り、v2.1.226 の
+# ネイティブ機では表示。版と機が同時に違うので、どちらが効いたかは切り分けていない）。
+# 出ない版では「検出しているのに何も起きない」が静かに続くため、手動確認の手順を
+# 添えることだけが気付く手がかりになる。deny に切り替えた環境には無用なので出さない。
+sc_decision() {
+	(cd "$TMP" && printf '{}' | env -u CLAUDE_PROJECT_DIR \
+		HOME="$SCHOME" PATH="/usr/bin:/bin" \
+		GIT_CONFIG_GLOBAL="$TMP/gitconfig-empty" GIT_CONFIG_SYSTEM=/dev/null \
+		CLAUDE_PLUGIN_OPTION_DECISION="$1" \
+		CLAUDE_PLUGIN_ROOT="$GUARD" sh "$GUARD/scripts/selfcheck.sh" 2>/dev/null)
+}
+
+out=$(sc_decision ask | decode)
+contains 'ask なら手動確認の手順を添える' 'rm -f /tmp/guardrails-manual-check' "$out"
+contains 'ask なら版で挙動が変わることを言う' 'v2.1.226' "$out"
+
+out=$(sc_decision deny | decode)
+case "$out" in
+	*guardrails-manual-check*) ng 'deny なら手動確認の手順は出さない' ;;
+	*) ok 'deny なら手動確認の手順は出さない' ;;
+esac
+
 # ---------------------------------------------------------------- 四層の診断
 section '自己診断（四層）'
 

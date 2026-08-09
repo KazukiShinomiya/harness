@@ -57,14 +57,18 @@ cat <<'EOF'
 
 導入した。次に確認すること。
 
-  1. 新しいセッションを開き、起動時の文脈に次の行が出るか見る
+  1. 新しいセッションを開き、Claude に自己診断の結果を尋ねる
+       「起動時に入った guardrails の自己診断を、ツールを実行せずそのまま貼って」
+     次の行が返るはず。
        guardrails: 有効（<path>、decision=...）
        session-harness: <path> を読み込んだ   （SESSION_STATE.md がある場合）
-     出なければ自己診断が警告を出しているはず。黙っていることは無い。
+     診断は additionalContext で Claude にだけ渡るので**画面には出ない**。
+     異常時だけ systemMessage が画面にも出る。黙っていることは無い。
 
-  2. ask が確認として表示される環境かを確かめる
+  2. ask が確認として表示される版かを確かめる（対話セッションで）
        rm -f /tmp/guardrails-manual-check
-     確認が出なければ、この環境では検出しても素通しになる。
-     その場合は githooks/ と permissions/ の層を併用すること（README 参照）。
+     確認が出なければ、この環境では検出しても素通しになる（v2.1.220 の WSL2 機で
+     実測。v2.1.226 のネイティブ Linux 機では出た）。ファイルは存在しないので副作用は無い。
+     出ない場合は githooks/ と permissions/ の層を併用すること（README 参照）。
 
 EOF
