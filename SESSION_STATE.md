@@ -67,6 +67,19 @@ GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 SessionStart が両方記録され、`guardrails: 有効（…、decision=ask）` も出ていた。
 今日入れたものが期待どおり読まれるという答え合わせはこれで済んでいる。
 
+**外から入れる経路を隔離 `HOME` でなぞった。** public 化以来ずっと未検証だったもの。
+
+- `install.sh` は通る。**SSH clone が失敗すると HTTPS へ自動でフォールバックする**
+  （`GIT_SSH_COMMAND=/bin/false` で潰して実測）。鍵を持たない他人でも入れる。
+  この機で SSH clone が選ばれるのは `insteadOf` のせいではない（未設定を確認済み）
+- 入るのは `enabledPlugins` と `extraKnownMarketplaces` **だけ**。`permissions` は一件も
+  書かれず、`core.hooksPath` も `rm-guard` も当然入らない
+- **その状態で自己診断が三層すべてを名指しする**——「git 層: 未適用（core.hooksPath が
+  未設定）」「permissions 層: 未適用（deny 規則が 1 件も無い）」「OS/FS 層: 未適用
+  （rm は /usr/bin/rm）」。`systemMessage` は出ない。未適用は警告しない決定どおり
+- プラグインの実体は `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` に入る
+  （`marketplaces/<name>/` は clone そのもの）。手で診断を叩くときの `CLAUDE_PLUGIN_ROOT` はここ
+
 過去の戦果（要点のみ）: 自己診断を四層へ拡張、判定器の穴を三つ（`rm` の綴り一致→意味判定、
 `--build` の誤爆、`protected_paths` の Bash 対応）、CI 導入、この機への git / permissions /
 OS/FS 三層の適用。`tests/run.sh` は 85 項目、CI でも緑。
@@ -96,9 +109,9 @@ deny は再起動不要で即座に効くため、先に入れるとエージェ
    という以前の記述はこの機には当てはまらない。それでも結論は同じ——空のまま固めると
    自分が鍵を足すときに詰まるだけ。鍵を入れたら、そのとき固めればよい。
 4. `session-harness` は初版のまま手付かず。急ぐ理由は無い（動いてはいる）。
-5. public にしたので、他人が入れられる状態になった。`install.sh` は四層のうち
-   プラグイン層しか入れないため、外からなぞると残り三層を落とす。
-   **この機ではローカルパス登録で入れたので、`install.sh` の経路は依然として未検証。**
+5. ~~`install.sh` の経路が未検証~~ **検証済み。手当ては要らない。** 隔離 `HOME` で
+   実際になぞった（下の戦果を見よ）。プラグイン層しか入らないのは事実だが、
+   自己診断が残り三層を名指しで「未適用」と報告するので、入れた人は気付ける。
 
 ## 決定事項・メモ
 
