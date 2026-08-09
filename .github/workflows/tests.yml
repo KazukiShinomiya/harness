@@ -1,0 +1,33 @@
+# tests/run.sh を push と pull request のたびに走らせる。
+#
+# これまで「変更したら tests/run.sh を通すこと」は CLAUDE.md と README に書いてある
+# だけで、担保しているのは人間の記憶だった。口約束でなく仕組みで防ぐ、というこの
+# リポジトリの方針とそこだけ矛盾していた。
+#
+# 実行環境はユーザーの機と違い、四層はどれも導入されていない。自己診断のテストは
+# HOME / PATH / GIT_CONFIG_GLOBAL を隔離した値へ差し替えて走るので、そこに依存しない。
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 何で走ったのかを残す。失敗したときに環境差を疑えるようにするため。
+      - name: 環境
+        run: |
+          python3 --version
+          git --version
+          sh -c 'echo "shell: $0"'
+
+      - name: tests/run.sh
+        run: ./tests/run.sh
