@@ -94,9 +94,9 @@ deny は再起動不要で即座に効くため、先に入れるとエージェ
   結論だけ移して前提を確かめ直さないと、正しい結論を間違った理由で持ち続けることになる。
   次に判断を書くときは「どの機で測ったか」を添えること。
 - **`.github/workflows/` を含む push は HTTPS リモートでは通らない。** OAuth トークンに
-  `workflow` スコープが無いため GitHub が弾く。SSH なら通る（`ssh -T git@github.com` で
-  認証は確認済み）。恒久的に直すなら
-  `git remote set-url origin git@github.com:KazukiShinomiya/harness.git`。
+  `workflow` スコープが無いため GitHub が弾く。**origin は SSH へ切り替え済み**
+  （`git@github.com:KazukiShinomiya/harness.git`）なので、以後は素の `git push origin master`
+  で通る。他の機や別クローンで同じことに当たったら、そこも SSH にすること。
 - **`!` 経由の `sudo` はパスワードを読めない。** TTY が無いため。この機は passwordless
   sudo ではないので、`sudo` が要るものは実端末で打つしかない。`python3-venv` も不完全で、
   sudo 抜きに pip で入れる逃げ道も無かった。
