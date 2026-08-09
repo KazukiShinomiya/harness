@@ -6,6 +6,7 @@
 """
 
 import json
+import os
 import shlex
 import sys
 
@@ -13,6 +14,9 @@ import _common
 
 # 既存のグローバル settings.json のフックから移植した既定パターン。
 # 空白区切りはトークン列として扱い、連続一致で判定する。
+#
+# rm はここに置かない。オプションの綴りが多すぎてトークン列では表せないため、
+# 下の find_rm_hit() が意味で判定する。
 DEFAULT_PATTERNS = (
     "git push",
     "git commit",
@@ -21,10 +25,14 @@ DEFAULT_PATTERNS = (
     "git clean",
     "git checkout --",
     "git branch -D",
-    "rm -rf",
-    "rm -r",
-    "rm -f",
 )
+
+# rm の破壊的オプション。-rf / -fr / -Rf / -r -f / --recursive --force は
+# すべて同じ意味だが、綴りは違う。以前は "rm -rf" "rm -r" "rm -f" を literal で
+# 並べていたため、**"rm -fr" が素通りしていた**（実測）。綴りを列挙する方針では
+# 必ず取りこぼす。まとめ書きされた短オプションは 1 文字ずつ見る。
+RM_SHORT = "rRf"
+RM_LONG = ("--recursive", "--force")
 
 REASON = (
     "irreversible op ({hit}): NO fabricated consent -- confirm full-context read "
@@ -40,15 +48,48 @@ def contains_sequence(tokens, needle):
     return any(tokens[i : i + span] == needle for i in range(len(tokens) - span + 1))
 
 
+def find_rm_hit(tokens):
+    """rm の呼び出しを見つけ、破壊的なオプションが付いていれば綴りごと返す。
+
+    `/bin/rm` のような絶対パス呼びも拾う。`git rm` は追跡下のファイルしか消さず
+    git から戻せるので対象にしない。
+    """
+    for index, token in enumerate(tokens):
+        if os.path.basename(token) != "rm":
+            continue
+        if index > 0 and tokens[index - 1] == "git":
+            continue
+
+        for arg in tokens[index + 1:]:
+            if arg == "--":
+                break  # 以降はオプションではなくパス。
+            if not arg.startswith("-") or arg == "-":
+                continue
+            if arg.startswith("--"):
+                if arg in RM_LONG:
+                    return "rm " + arg
+                continue
+            if any(char in RM_SHORT for char in arg[1:]):
+                return "rm " + arg
+    return None
+
+
 def find_hit(tokens, patterns):
     for pattern in patterns:
         if contains_sequence(tokens, shlex.split(pattern)):
             return pattern
+
+    hit = find_rm_hit(tokens)
+    if hit is not None:
+        return hit
+
     # トークン列だけでは表せない複合形。
     if contains_sequence(tokens, ["docker", "compose"]) and "up" in tokens:
         return "docker compose up"
-    if "--build" in tokens:
-        return "--build"
+
+    # かつてここに `"--build" in tokens` という単独パターンがあったが、削除した。
+    # 意図していた `docker compose up --build` は上の行が先に拾うため、この規則が
+    # 実際に発火するのは `make --build` のような無関係なコマンドだけだった（実測）。
     return None
 
 

@@ -6,7 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（67 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（85 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -52,7 +52,7 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（67 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（85 項目）。失敗があれば非 0 で終了する。
 
 自己診断のテストは `HOME` / `PATH` / `GIT_CONFIG_GLOBAL` を隔離した値に差し替えて走る。
 四層の診断は環境そのものを読むため、そうしないとこの機の導入状況で結果が変わってしまう。
@@ -72,7 +72,7 @@ claude --plugin-dir ~/repos/harness/plugins/guardrails
 ```
 
 `/hooks` を開くと `Plugin Hooks` として 3 件が並ぶ。`PreToolUse` が 2 件
-（`Bash` と `Edit|Write|NotebookEdit`）、`SessionStart` が 1 件（自己診断）。
+（`Bash` と `Bash|Edit|Write|NotebookEdit`）、`SessionStart` が 1 件（自己診断）。
 
 | # | 指示 | 期待 |
 |---|---|---|
@@ -556,6 +556,48 @@ Claude Code のプラグインが `settings.json` で供給できるのは `agen
 `irreversible_ops.py` は部分文字列一致ではなく `shlex` でトークン分割してから照合する。
 `echo "git push はまだしない"` のように引用符の中にパターンが現れるだけの文字列で発火させないため。
 コマンドが解釈できない（クォート不整合など）場合は例外を上げて非 0 で終了し、`guard.sh` が `ask` に倒す。
+
+#### ただし rm は綴りでは照合しない
+
+当初は `"rm -rf"` `"rm -r"` `"rm -f"` を literal で並べていた。**`rm -fr` が素通りしていた**（実測）。
+`-rf` `-fr` `-Rf` `-r -f` `--recursive --force` はすべて同じ意味で、綴りを列挙する方針では
+必ず取りこぼす。現在は `rm` の呼び出しを見つけてからオプションを意味で判定する
+（まとめ書きされた短オプションは 1 文字ずつ見る。`/bin/rm` のような絶対パス呼びも拾う）。
+
+- `git rm` は対象外。追跡下のファイルしか消さず git から戻せる
+- **オプションの無い `rm file` は今も発火しない。** 既定パターンを移植した時点からの
+  境界をそのまま残してある。日常的すぎるのと、消えたものを戻す役目は OS/FS 層
+  （`rm-guard`）が持っているため。変えるなら `find_rm_hit()` の 1 行で済む
+
+なお単独パターンの `--build` は削除した。意図していた `docker compose up --build` は
+その前の行が先に拾うため、この規則が実際に発火するのは `make --build` のような
+無関係なコマンドだけだった（実測）。
+
+### 保護パスは Bash も見る
+
+`protected_paths.py` の matcher は当初 `Edit|Write|NotebookEdit` だけだった。そのため
+`echo x >> ~/.ssh/authorized_keys` が素通りしていた（実測）。**Edit ツールでは止まるのに
+シェル経由なら通るのでは、守っていることにならない。** 現在は `Bash` も matcher に含め、
+コマンド文字列から書き込み先を拾う。
+
+| 拾うもの | 例 |
+|---|---|
+| リダイレクト先 | `> .env` / `>>.env` / `2> .env` / `&> .env` |
+| 書き込むと分かっているコマンドの引数 | `tee` `cp` `mv` `install` `ln` `truncate` `dd`（`of=`）`sed -i` |
+
+**読み取りは対象にしない。** `cat .env` まで拾うと日常操作が確認だらけになり、やがて
+誰も読まなくなる。この層の目的は書き込む前に一拍置くこと。
+
+**塞ぎ切ってはいない。** シェルは任意の書き込み方を許すので、静的には拾えないものが残る。
+
+```bash
+python3 -c "open('.env','w').write('x')"   # インタプリタの中
+eval "$cmd"                                 # 変数展開の先
+exec 3> .env                                # 記述子経由
+```
+
+`2>&1` をパスと誤解しないことは確認済み（`tests/run.sh`）。ここは「確認を挟む層」であって
+最後の砦ではない。本当に失いたくないものは git 層と OS/FS 層で守ること。
 
 ### 判定器は guard.sh 経由で呼ぶ
 

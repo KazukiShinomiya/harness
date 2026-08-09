@@ -35,6 +35,20 @@
   `GIT_CONFIG_GLOBAL` を隔離した値へ差し替えて走らせる（そうしないとこの機の導入状況で
   結果が変わる）。診断は 0.16 秒、`SessionStart` の timeout は 15 秒
 
+**判定器の穴を三つ塞いだ**（テスト 67 → 85 項目）。
+
+- **`rm` を綴り一致から意味判定へ。** `"rm -rf"` `"rm -r"` `"rm -f"` を literal で
+  並べていたため `rm -fr` が素通りしていた。綴りの列挙では必ず取りこぼす。
+  現在は `rm` の呼び出しを見つけてオプションを 1 文字ずつ見る（`-Rf`、
+  `--recursive --force`、`/bin/rm` も拾う）。`git rm` は git から戻せるので対象外
+- **単独パターンの `--build` を削除。** 意図していた `docker compose up --build` は
+  その前の行が先に拾うので、実際に発火するのは `make --build` のような無関係な
+  コマンドだけだった
+- **`protected_paths` の matcher に `Bash` を追加。** `echo x >> ~/.ssh/authorized_keys`
+  が素通りしていた。リダイレクト先と、書き込むと分かっているコマンド
+  （`tee` `cp` `mv` `install` `ln` `truncate` `dd` `sed -i`）の引数を拾う。
+  読み取りは対象にしない——`cat .env` まで拾うと確認だらけになり読まれなくなる
+
 ## 次の行動
 
 1. **この機に三層を入れる。** 診断が「未適用」と言い続けている状態。入れるなら
@@ -43,10 +57,11 @@
    入れないなら「入れない」と決めること——診断が毎回報告するので、放っておくと慣れて読まなくなる。
 2. **CI が無い。** public なのに `.github/` が無く、`tests/run.sh` を通すのは人間の記憶だけ。
    「口約束でなく仕組み」という方針とここだけ矛盾している。
-3. **判定器の穴（実測）。** `rm -fr` と `rm --recursive --force` は素通りする
-   （トークン完全一致のため）。`--build` は単独パターンなので `make --build` で誤爆する。
-   `protected_paths` は matcher が `Edit|Write|NotebookEdit` のみで、
-   `cat foo > ~/.ssh/config` のような Bash 経由の書き込みを見ていない。
+3. **`protected_paths` の Bash 対応は塞ぎ切っていない。** シェルは任意の書き込み方を
+   許すので静的には拾えない（`python -c "open('.env','w')"`、`eval`、`exec 3>`）。
+   広げるより、本当に失いたくないものを git 層と OS/FS 層へ寄せる方が筋がいい。
+   **オプションの無い `rm file` も発火しない**——日常的すぎるのと、戻す役目は
+   `rm-guard` が持っているため。変えるなら `find_rm_hit()` の 1 行。
 4. `chattr +i` は未適用のまま。代償が重い項目ばかりなので保留してある。
    掛けるなら `osfs/immutable.sh status` を読んでから選ぶこと。
    **`~/.ssh/authorized_keys` を固める案は調査のうえ見送った**——ファイルが存在せず、

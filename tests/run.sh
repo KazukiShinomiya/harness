@@ -76,6 +76,46 @@ contains '保護パスを検出する' 'protected path' "$out"
 out=$(judge protected_paths.py '{"tool_input":{"file_path":"/tmp/x/main.py"}}')
 empty '通常のパスは素通しする' "$out"
 
+# --- rm はオプションの綴りで抜けられてはいけない ---
+# 以前は "rm -rf" "rm -r" "rm -f" を literal で並べていたため、順序を変えた
+# "rm -fr" が素通りしていた。綴りの列挙では必ず取りこぼす。
+for spelling in 'rm -rf /tmp/x' 'rm -fr /tmp/x' 'rm -Rf /tmp/x' 'rm -r -f /tmp/x' \
+	'rm --recursive --force /tmp/x' 'sudo /bin/rm -f /tmp/x'; do
+	out=$(judge irreversible_ops.py "$(printf '{"tool_input":{"command":"%s"}}' "$spelling")")
+	contains "綴りを変えても拾う: $spelling" '"permissionDecision"' "$out"
+done
+
+# git rm は追跡下のファイルしか消さず git から戻せる。
+out=$(judge irreversible_ops.py '{"tool_input":{"command":"git rm -r foo"}}')
+empty 'git rm では発火しない' "$out"
+
+# 単独の "--build" は docker と無関係なコマンドで誤爆していた。
+out=$(judge irreversible_ops.py '{"tool_input":{"command":"make --build"}}')
+empty '無関係な --build で発火しない' "$out"
+
+out=$(judge irreversible_ops.py '{"tool_input":{"command":"docker compose up --build"}}')
+contains 'docker compose up は拾う' '"permissionDecision"' "$out"
+
+# --- Bash 経由の書き込みも保護パスを見る ---
+# Edit ツールでは止まるのにリダイレクトなら通るのでは、守っていることにならない。
+for writing in 'echo x >> /home/ubuntu/.ssh/authorized_keys' 'echo x >/tmp/p/.env' \
+	'tee -a /tmp/p/.env' 'cp /tmp/p/secret.pem /tmp/b' 'sed -i s/a/b/ /tmp/p/.env' \
+	'dd if=/dev/zero of=/tmp/p/server.key'; do
+	out=$(judge protected_paths.py "$(printf '{"tool_input":{"command":"%s"}}' "$writing")")
+	contains "Bash 経由の書き込みを拾う: $writing" 'protected path' "$out"
+done
+
+# 読み取りは対象にしない。ここまで拾うと日常操作が確認だらけになる。
+out=$(judge protected_paths.py '{"tool_input":{"command":"cat /tmp/p/.env"}}')
+empty '読み取りでは発火しない' "$out"
+
+# 2>&1 はファイル記述子であってパスではない。
+out=$(judge protected_paths.py '{"tool_input":{"command":"make build 2>&1 | tee /tmp/log"}}')
+empty 'ファイル記述子をパスと誤解しない' "$out"
+
+out=$(judge protected_paths.py '{"tool_input":{"command":"echo hi > /tmp/plain.txt"}}')
+empty '通常のリダイレクトは素通しする' "$out"
+
 # ---------------------------------------------------------------- userConfig
 section 'userConfig（multiple の直列化）'
 
