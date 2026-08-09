@@ -12,7 +12,11 @@ import sys
 
 
 def decision():
-    """検出時に返す決定。userConfig の decision で ask / deny を切り替える。"""
+    """検出時に返す決定。userConfig の decision で ask / deny を切り替える。
+
+    ask は Claude Code 側で確認として表示されないことがある（同じ機・同じ版でも
+    セッションによって変わるのを v2.1.226 で実測）。確実に止めたいなら deny。
+    """
     value = os.environ.get("CLAUDE_PLUGIN_OPTION_DECISION", "ask").strip().lower()
     return value if value in ("ask", "deny") else "ask"
 
