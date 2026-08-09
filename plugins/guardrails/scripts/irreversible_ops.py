@@ -34,10 +34,43 @@ DEFAULT_PATTERNS = (
 RM_SHORT = "rRf"
 RM_LONG = ("--recursive", "--force")
 
-REASON = (
-    "irreversible op ({hit}): NO fabricated consent -- confirm full-context read "
-    "and EXPLICIT user approval before proceeding"
+# 確認ダイアログに出る文。**止められた人間が Yes / No を選ぶための情報**を書く。
+#
+# 以前はここに "NO fabricated consent -- confirm full-context read and EXPLICIT
+# user approval before proceeding" と書いていた。これはエージェントへの戒めであって、
+# 人間には何が起きようとしているのか分からない。しかも操作の種類によらず同じ文だった。
+#
+# **判断できないダイアログは、意識せず承認される。** 2026-08-10、確認は出ていたのに
+# 無意識に Yes が押されていたことが分かった。確認が出ることと、確認として機能する
+# ことは別。ここが空疎だと、ガードレールは「出ているのに効いていない」状態になる。
+CONSEQUENCES = {
+    "git push": "リモートへ反映される。取り消しても、取得済みの相手の手元には残る",
+    "git commit": "コミットが作られる。履歴なので git で戻せる",
+    "git reset --hard": "未コミットの変更が消える。git では戻せない",
+    "git rebase": "履歴が書き換わる。共有済みなら他の人の手元と食い違う",
+    "git clean": "追跡していないファイルが消える。git では戻せない",
+    "git checkout --": "そのファイルの未コミットの変更が消える。git では戻せない",
+    "git branch -D": "未マージでもブランチを削除する",
+    "docker compose up": "コンテナが起動する。ボリュームやポートが実際に変わる",
+}
+
+# rm は綴りで hit が変わる（rm -rf / rm -fr / rm --force …）ので接頭辞で引く。
+RM_CONSEQUENCE = (
+    "ファイル・ディレクトリを削除する。rm-guard 経由ならゴミ箱へ入り trash-restore で"
+    "戻せるが、そうでなければ戻せない"
 )
+
+# userConfig の extra_patterns で足されたものはここに説明が無い。
+# 「何が起きるか」を語れない以上、語れないことを言う。
+UNKNOWN_CONSEQUENCE = "取り消しにくい操作として登録されている"
+
+REASON = "{hit} — {consequence}。意図した操作か確かめてほしい"
+
+
+def consequence_for(hit):
+    if hit.startswith("rm "):
+        return RM_CONSEQUENCE
+    return CONSEQUENCES.get(hit, UNKNOWN_CONSEQUENCE)
 
 
 def contains_sequence(tokens, needle):
@@ -106,7 +139,7 @@ def main():
     if hit is None:
         return  # 決定なし。通常の権限フローへ。
 
-    _common.emit(REASON.format(hit=hit))
+    _common.emit(REASON.format(hit=hit, consequence=consequence_for(hit)))
 
 
 if __name__ == "__main__":

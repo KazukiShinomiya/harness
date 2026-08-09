@@ -39,7 +39,11 @@ DEFAULT_PROTECTED = (
     "*/dotfiles/*",
 )
 
-REASON = "protected path ({pattern}): {path} -- confirm this write is intended"
+# 人間が Yes / No を選ぶための文。詳しくは irreversible_ops.py の CONSEQUENCES を見ること。
+REASON = (
+    "保護対象への書き込み: {path}（{pattern} に一致）。"
+    "秘密情報や設定を壊していないか確かめてほしい"
+)
 
 # 書き込み先を作るリダイレクト。 > >> 2> &> 1>> >| に一致する。
 REDIRECT = re.compile(r"^(?:[0-9]*|&)>{1,2}\|?")

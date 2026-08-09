@@ -51,7 +51,9 @@ try:
 except Exception:
     sys.exit(0)
 print(d.get("systemMessage", ""))
-print(d.get("hookSpecificOutput", {}).get("additionalContext", ""))
+hs = d.get("hookSpecificOutput", {})
+print(hs.get("additionalContext", ""))
+print(hs.get("permissionDecisionReason", ""))
 ' 2>/dev/null
 }
 
@@ -71,7 +73,7 @@ out=$(judge irreversible_ops.py '{"tool_input":{"command":"echo \"git push は�
 empty '引用符の中のパターンで発火しない' "$out"
 
 out=$(judge protected_paths.py '{"tool_input":{"file_path":"/tmp/x/.env"}}')
-contains '保護パスを検出する' 'protected path' "$out"
+contains '保護パスを検出する' '保護対象への書き込み' "$(printf '%s' "$out" | decode)"
 
 out=$(judge protected_paths.py '{"tool_input":{"file_path":"/tmp/x/main.py"}}')
 empty '通常のパスは素通しする' "$out"
@@ -96,13 +98,34 @@ empty '無関係な --build で発火しない' "$out"
 out=$(judge irreversible_ops.py '{"tool_input":{"command":"docker compose up --build"}}')
 contains 'docker compose up は拾う' '"permissionDecision"' "$out"
 
+# --- 理由文は人間が Yes / No を選ぶための情報にする ---
+# 以前は操作によらず同じ英文（エージェントへの戒め）だけを出しており、止められた人間に
+# 判断材料が無かった。判断できないダイアログは意識せず承認される——確認が出ていても
+# 素通りと変わらなくなる。操作ごとに「何が起きるか」を書くこと。
+out=$(judge irreversible_ops.py '{"tool_input":{"command":"git push origin master"}}' | decode)
+contains 'push は起きることを説明する' 'リモートへ反映' "$out"
+
+out=$(judge irreversible_ops.py '{"tool_input":{"command":"rm -rf /tmp/x"}}' | decode)
+contains 'rm は起きることを説明する' 'ゴミ箱' "$out"
+
+# 操作が違えば説明も違う。理由文は "guardrails: <hit> — <説明>" の形なので、
+# 全体を比べると hit の差だけで通ってしまう。説明側だけを取り出して比べること。
+desc() { judge irreversible_ops.py "$1" | decode | sed -n 's/.*— //p'; }
+push_desc=$(desc '{"tool_input":{"command":"git push origin master"}}')
+reset_desc=$(desc '{"tool_input":{"command":"git reset --hard HEAD~1"}}')
+if [ -n "$push_desc" ] && [ "$push_desc" != "$reset_desc" ]; then
+	ok '操作ごとに説明を変える'
+else
+	ng "操作ごとに説明を変える -- push='$push_desc' reset='$reset_desc'"
+fi
+
 # --- Bash 経由の書き込みも保護パスを見る ---
 # Edit ツールでは止まるのにリダイレクトなら通るのでは、守っていることにならない。
 for writing in 'echo x >> /home/ubuntu/.ssh/authorized_keys' 'echo x >/tmp/p/.env' \
 	'tee -a /tmp/p/.env' 'cp /tmp/p/secret.pem /tmp/b' 'sed -i s/a/b/ /tmp/p/.env' \
 	'dd if=/dev/zero of=/tmp/p/server.key'; do
 	out=$(judge protected_paths.py "$(printf '{"tool_input":{"command":"%s"}}' "$writing")")
-	contains "Bash 経由の書き込みを拾う: $writing" 'protected path' "$out"
+	contains "Bash 経由の書き込みを拾う: $writing" '保護対象への書き込み' "$(printf '%s' "$out" | decode)"
 done
 
 # 読み取りは対象にしない。ここまで拾うと日常操作が確認だらけになる。
@@ -142,7 +165,13 @@ empty '空要素で誤爆しない' "$out"
 
 out=$(judge_opt CLAUDE_PLUGIN_OPTION_PROTECTED_PATHS '*/secrets.yml,*.tfstate' \
 	protected_paths.py '{"tool_input":{"file_path":"/tmp/x/main.tfstate"}}')
-contains '追加の保護パスが効く' 'protected path' "$out"
+contains '追加の保護パスが効く' '保護対象への書き込み' "$(printf '%s' "$out" | decode)"
+
+# extra_patterns で足された操作には説明を持たない。それでも無言にはせず、
+# 「説明を持たない」ことを言う。ここを空にすると人間が判断できないまま止まる。
+out=$(judge_opt CLAUDE_PLUGIN_OPTION_EXTRA_PATTERNS 'terraform apply' \
+	irreversible_ops.py '{"tool_input":{"command":"terraform apply"}}' | decode)
+contains '説明の無い操作もそう言う' '登録されている' "$out"
 
 out=$(judge irreversible_ops.py '{"tool_input":{"command":"terraform apply"}}')
 empty '未設定なら既定パターンのみ' "$out"
@@ -196,9 +225,9 @@ out=$(sc "$TMP/broken")
 contains '判定器が黙ると警告する' 'systemMessage' "$out"
 
 # ask は環境によって確認ダイアログが出ない（v2.1.220 の WSL2 機で素通り、v2.1.226 の
-# ネイティブ機では表示）。出ない環境では案内だけが気付く手がかりになる。
-# 出ない版では「検出しているのに何も起きない」が静かに続くため、手動確認の手順を
-# 添えることだけが気付く手がかりになる。deny に切り替えた環境には無用なので出さない。
+# ネイティブ機では表示）。出ない環境では「検出しているのに何も起きない」が静かに続く
+# ため、手動確認の手順を添えることだけが気付く手がかりになる。
+# deny に切り替えた環境には無用なので出さない。
 sc_decision() {
 	(cd "$TMP" && printf '{}' | env -u CLAUDE_PROJECT_DIR \
 		HOME="$SCHOME" PATH="/usr/bin:/bin" \

@@ -6,7 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（91 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（95 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -53,7 +53,7 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（91 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（95 項目）。失敗があれば非 0 で終了する。
 
 自己診断のテストは `HOME` / `PATH` / `GIT_CONFIG_GLOBAL` を隔離した値に差し替えて走る。
 四層の診断は環境そのものを読むため、そうしないとこの機の導入状況で結果が変わってしまう。
@@ -77,8 +77,8 @@ claude --plugin-dir ~/repos/harness/plugins/guardrails
 
 | # | 指示 | 期待 |
 |---|---|---|
-| 1 | `/tmp/probe/.env` に `FOO=bar` と書かせる | `guardrails: protected path (.env): ...` |
-| 2 | `git -C /tmp/probe commit --dry-run` を実行させる | `guardrails: irreversible op (git commit): ...` |
+| 1 | `/tmp/probe/.env` に `FOO=bar` と書かせる | `guardrails: 保護対象への書き込み: /tmp/probe/.env（.env に一致）…` |
+| 2 | `git -C /tmp/probe commit --dry-run` を実行させる | `guardrails: git commit — コミットが作られる…` |
 | 3 | `ls -la /tmp` を実行させる | 何も出ない |
 
 **確認が出るかは環境に依る**（[詳細](#ask-は環境によって黙って消える実測)）。v2.1.226 の
@@ -414,6 +414,40 @@ M[`CLAUDE_PLUGIN_OPTION_${ge}`] = String(Ne)
 
 なお `${user_config.KEY}` を hook の shell 形式コマンドに書くと Claude Code が
 拒否する（置換後の値がシェルで再解釈されるため）。exec 形式か、環境変数を読むこと。
+
+### 理由文は人間が Yes / No を選ぶための情報にする
+
+確認ダイアログに出るのは `permissionDecisionReason` の一行だけで、**止められた人間が
+判断に使えるのはそれしかない。** ここが空疎だと、確認は出ているのに実質は素通りになる。
+
+以前はこう出していた。
+
+```
+guardrails: irreversible op (rm -f): NO fabricated consent --
+confirm full-context read and EXPLICIT user approval before proceeding
+```
+
+これはエージェントへの戒めであって、人間には何が起きようとしているのか分からない。
+しかも操作の種類によらず同じ文だった。実際、この文言のまま**確認が出ていたのに
+無意識に `Yes` が押されていた**（2026-08-10）。
+
+いまは操作ごとに「実行すると何が起きるか」を書く。
+
+```
+guardrails: rm -rf — ファイル・ディレクトリを削除する。rm-guard 経由ならゴミ箱へ入り
+trash-restore で戻せるが、そうでなければ戻せない。意図した操作か確かめてほしい
+
+guardrails: git push — リモートへ反映される。取り消しても、取得済みの相手の手元には残る。
+意図した操作か確かめてほしい
+
+guardrails: 保護対象への書き込み: /tmp/x/.env（.env に一致）。
+秘密情報や設定を壊していないか確かめてほしい
+```
+
+`userConfig.extra_patterns` で足された操作には説明が無い。その場合も黙らず
+「取り消しにくい操作として登録されている」と言う——語れないことを語れないと言う方が、
+それらしい文を捏造するより良い。`tests/run.sh` が、操作ごとに説明が変わることと、
+説明を使い回していないことを見張っている。
 
 ### fail-safe（判定不能なら ask）
 
