@@ -4,7 +4,7 @@
 
 ## 現在の状況
 
-多層防御が**四層**になった。`tests/run.sh` は 91 項目すべて成功し、**push と PR のたびに
+多層防御が**四層**になった。`tests/run.sh` は 95 項目すべて成功し、**push と PR のたびに
 GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 **リポジトリは public**（<https://github.com/KazukiShinomiya/harness>）。master に push 済み。
 
