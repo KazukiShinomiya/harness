@@ -12,12 +12,24 @@
   - PreToolUse フックの permissionDecision "ask" が Claude Code 側で表示されず、
     ガードレールが素通しになっていた（deny は同一経路で機能する）。
     → decision が ask のときは、その旨と手動確認の手順を添える。
+  - 診断対象がプラグイン層だけだったため、**permissions 層が一件も適用されて
+    いない状態が何セッションも気付かれずに続いた**。SESSION_STATE には「適用済み」と
+    書いてあり、記録の方が実態から外れていた。
+    → 四層すべてを毎回実測する。手で書いた状態表は腐るが、実測は腐らない。
+
+四層それぞれについて、次の三つを区別する。
+
+    有効           そのまま報告する
+    未適用         異常ではない。層を入れていない環境の方が多い。報告はするが警告しない
+    導入済みで故障  **これだけが警告に値する**。守られているつもりで守られていない状態
 
 判定は fail-safe に倒す。この診断自体が失敗してもセッションは止めない（常に exit 0）。
 """
 
+import collections
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -47,6 +59,14 @@ PROBES = (
         },
     ),
 )
+
+# name    報告に出す層の名前
+# status  一行の状態。additionalContext に必ず載る
+# problem 導入済みなのに機能していない場合の説明。None なら警告しない
+Layer = collections.namedtuple("Layer", "name status problem")
+
+
+# ---------------------------------------------------------------- プラグイン層
 
 
 def run_probe(root, checker, payload):
@@ -88,41 +108,202 @@ def run_probe(root, checker, payload):
     return True, got_decision
 
 
-def main():
-    try:
-        json.load(sys.stdin)
-    except (json.JSONDecodeError, ValueError):
-        pass  # 入力は使わない。読めなくても診断は続ける。
-
+def check_plugin_layer(root):
+    """プラグイン層。ここだけは「未適用」があり得ない——動いている以上、導入されている。"""
     problems = []
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
 
     if not root:
-        problems.append("CLAUDE_PLUGIN_ROOT が未設定")
-    elif not os.path.isdir(root):
-        problems.append("CLAUDE_PLUGIN_ROOT が存在しない: %s" % root)
-    else:
-        guard = os.path.join(root, "scripts", "guard.sh")
-        if not os.path.isfile(guard):
-            problems.append("guard.sh が無い: %s" % guard)
-        else:
-            for checker, payload in PROBES:
-                if not os.path.isfile(os.path.join(root, "scripts", checker)):
-                    problems.append("判定器が無い: %s" % checker)
-                    continue
-                ok, detail = run_probe(root, checker, payload)
-                if not ok:
-                    problems.append(detail)
+        return ["CLAUDE_PLUGIN_ROOT が未設定"]
+    if not os.path.isdir(root):
+        return ["CLAUDE_PLUGIN_ROOT が存在しない: %s" % root]
 
-    emit(problems, root)
+    guard = os.path.join(root, "scripts", "guard.sh")
+    if not os.path.isfile(guard):
+        return ["guard.sh が無い: %s" % guard]
+
+    for checker, payload in PROBES:
+        if not os.path.isfile(os.path.join(root, "scripts", checker)):
+            problems.append("判定器が無い: %s" % checker)
+            continue
+        ok, detail = run_probe(root, checker, payload)
+        if not ok:
+            problems.append(detail)
+
+    return problems
 
 
-def emit(problems, root):
+# ---------------------------------------------------------------- git 層
+
+
+def git_config(key):
+    """git config の値。未設定なら ""、git を起動できなければ None。"""
+    try:
+        proc = subprocess.run(
+            ["git", "config", "--get", key],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def check_git_layer():
+    """core.hooksPath が harness の githooks を指し、実行できる状態か。
+
+    core.hooksPath が壊れたパスを指していても git は何も言わずに hook を一つも
+    実行しない。この層の失敗は常に沈黙するので、こちらから見に行くしかない。
+    """
+    raw = git_config("core.hooksPath")
+
+    if raw is None:
+        return Layer("git 層", "判定不能（git を起動できない）", None)
+    if not raw:
+        return Layer("git 層", "未適用（core.hooksPath が未設定）", None)
+
+    path = os.path.expanduser(raw)
+    if not os.path.isdir(path):
+        return Layer(
+            "git 層",
+            "**壊れている**（%s が無い）" % path,
+            "git 層: core.hooksPath が存在しないディレクトリを指している: %s\n"
+            "    git は hook を一つも実行しない。秘密情報のコミットも強制 push も止まらない" % path,
+        )
+
+    # harness の githooks かどうか。他人の実装なら口を出さない。
+    if not os.path.isfile(os.path.join(path, "_lib.sh")):
+        return Layer("git 層", "harness 以外の実装（%s）" % path, None)
+
+    missing = [
+        hook
+        for hook in ("pre-commit", "pre-push")
+        if not os.access(os.path.join(path, hook), os.X_OK)
+    ]
+    if missing:
+        return Layer(
+            "git 層",
+            "**壊れている**（%s に実行権限が無い）" % "/".join(missing),
+            "git 層: %s に実行権限が無い（%s）。git はこの hook を黙って飛ばす\n"
+            "    chmod +x %s" % ("/".join(missing), path, " ".join(os.path.join(path, h) for h in missing)),
+        )
+
+    if git_config("guardrails.disable") == "true":
+        # 事故ではなく明示的な意思表示。警告はしないが、黙りもしない。
+        return Layer("git 層", "明示的に無効（guardrails.disable=true）", None)
+
+    return Layer("git 層", "有効（%s）" % path, None)
+
+
+# ---------------------------------------------------------------- permissions 層
+
+
+def settings_files():
+    """deny 規則が入り得る場所。読み取りのみ。"""
+    home = os.path.expanduser("~")
+    paths = [
+        os.path.join(home, ".claude", "settings.json"),
+        os.path.join(home, ".claude", "settings.local.json"),
+    ]
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project:
+        paths += [
+            os.path.join(project, ".claude", "settings.json"),
+            os.path.join(project, ".claude", "settings.local.json"),
+        ]
+    return paths
+
+
+def check_permissions_layer():
+    """deny 規則が実際に入っているか。
+
+    プラグインからは permissions を配れないため、この層だけは手で入れる必要がある。
+    入れ忘れても何も起きない——ask が表示されない環境では、この層の不在が
+    そのまま「何も止まらない」に直結する。
+    """
+    total = 0
+    unreadable = []
+
+    for path in settings_files():
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError) as exc:
+            unreadable.append("%s (%s)" % (path, exc))
+            continue
+        if not isinstance(data, dict):
+            unreadable.append("%s (最上位が JSON オブジェクトでない)" % path)
+            continue
+        rules = data.get("permissions", {})
+        rules = rules.get("deny", []) if isinstance(rules, dict) else []
+        if isinstance(rules, list):
+            total += len(rules)
+
+    if unreadable:
+        return Layer(
+            "permissions 層",
+            "**読めない設定ファイルがある**",
+            "permissions 層: 設定ファイルを読めない。deny 規則は効いていない可能性がある:\n    "
+            + "\n    ".join(unreadable),
+        )
+
+    if total == 0:
+        return Layer("permissions 層", "未適用（deny 規則が 1 件も無い）", None)
+
+    return Layer("permissions 層", "deny %d 件" % total, None)
+
+
+# ---------------------------------------------------------------- OS/FS 層
+
+
+def is_rm_guard(path):
+    return bool(path) and os.path.basename(os.path.realpath(path)) == "rm-guard"
+
+
+def check_osfs_layer():
+    """PATH 上の rm が rm-guard に解決され、ゴミ箱へ送れる状態か。
+
+    設置してあっても PATH の並びが違えば効かない。効かないことは何も起きないので
+    気付けない——「~/.local/bin/rm はあるのに rm は /usr/bin/rm」を明示的に拾う。
+    """
+    installed = os.path.expanduser("~/.local/bin/rm")
+    resolved = shutil.which("rm")
+
+    if is_rm_guard(resolved):
+        if shutil.which("trash-put"):
+            return Layer("OS/FS 層", "有効（rm -> rm-guard）", None)
+        return Layer(
+            "OS/FS 層",
+            "**壊れている**（trash-put が無い）",
+            "OS/FS 層: rm-guard は効いているが trash-put が無い。この状態ではあらゆる rm が失敗する\n"
+            "    sudo apt install trash-cli",
+        )
+
+    if os.path.lexists(installed) and is_rm_guard(installed):
+        return Layer(
+            "OS/FS 層",
+            "**効いていない**（rm は %s）" % (resolved or "解決できない"),
+            "OS/FS 層: %s に rm-guard を設置してあるが、PATH 上では %s が先に解決される。\n"
+            "    設置してあるのに効いていない。~/.local/bin を PATH の前方へ置くこと"
+            % (installed, resolved or "(rm が見つからない)"),
+        )
+
+    return Layer("OS/FS 層", "未適用（rm は %s）" % (resolved or "不明"), None)
+
+
+# ---------------------------------------------------------------- 報告
+
+
+def emit(plugin_problems, layers, root):
     where = root or "(不明)"
     current = decision()
+    summary = "\n".join("  %s: %s" % (layer.name, layer.status) for layer in layers)
+    layer_problems = [layer.problem for layer in layers if layer.problem]
 
-    if problems:
-        listed = "\n".join("  - " + p for p in problems)
+    if plugin_problems:
+        listed = "\n".join("  - " + problem for problem in plugin_problems)
         user_msg = (
             "guardrails が機能していない。不可逆操作は自動では止まらない。\n"
             "実行中のプラグイン: %s\n%s" % (where, listed)
@@ -136,6 +317,16 @@ def emit(problems, root):
         user_msg = None
         agent_msg = "guardrails: 有効（%s、decision=%s）" % (where, current)
 
+    agent_msg += "\n" + summary
+
+    # 未適用の層は警告しない（層を入れていない環境の方が多い）。
+    # 導入済みなのに機能していない層だけがユーザーへの警告に値する。
+    if layer_problems:
+        listed = "\n".join("  - " + problem for problem in layer_problems)
+        head = "guardrails: 導入済みの層が機能していない。守られているつもりで守られていない:\n"
+        user_msg = head + listed if user_msg is None else user_msg + "\n\n" + head + listed
+        agent_msg += "\n\n" + head + listed
+
     if current == "ask":
         caveat = (
             "注意: \"ask\" は Claude Code 側で確認ダイアログとして表示されない場合がある。"
@@ -148,7 +339,7 @@ def emit(problems, root):
             "確実に止めたいものは decision=deny か git 層（githooks/）へ寄せること。"
         )
         agent_msg += "\n" + caveat
-        if problems:
+        if user_msg:
             user_msg += "\n" + caveat
 
     out = {"hookSpecificOutput": {
@@ -159,6 +350,26 @@ def emit(problems, root):
         out["systemMessage"] = user_msg
 
     json.dump(out, sys.stdout)
+
+
+def main():
+    try:
+        json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        pass  # 入力は使わない。読めなくても診断は続ける。
+
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
+    plugin_problems = check_plugin_layer(root)
+
+    # 他の三層は読み取りだけで判定する。どれが失敗しても診断全体は続ける。
+    layers = []
+    for check in (check_git_layer, check_permissions_layer, check_osfs_layer):
+        try:
+            layers.append(check())
+        except Exception as exc:  # noqa: BLE001 -- 診断の失敗で起動を止めない
+            layers.append(Layer(check.__name__, "判定不能（%s）" % exc, None))
+
+    emit(plugin_problems, layers, root)
 
 
 if __name__ == "__main__":

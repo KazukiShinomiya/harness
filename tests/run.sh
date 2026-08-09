@@ -123,7 +123,22 @@ printf '{}' | sh "$GUARD/scripts/guard.sh" >/dev/null 2>&1
 # ---------------------------------------------------------------- 自己診断
 section 'guardrails の自己診断'
 
-sc() { printf '{}' | CLAUDE_PLUGIN_ROOT="$1" sh "$GUARD/scripts/selfcheck.sh" 2>/dev/null; }
+# 自己診断は git config / HOME / PATH を読んで四層すべてを実測する。テストの結果が
+# この機の導入状況で変わらないよう、隔離した環境を既定として渡す。読み取りしかしない
+# ので副作用は無い。git はリポジトリの外（$TMP）から呼ぶ——このリポジトリ自身の
+# ローカル設定を拾わせないため。
+SCHOME="$TMP/schome"
+SCBIN="$TMP/scbin"
+mkdir -p "$SCHOME/.claude" "$SCBIN"
+: > "$TMP/gitconfig-empty"
+
+# sc <CLAUDE_PLUGIN_ROOT> [HOME] [PATH] [GIT_CONFIG_GLOBAL]
+sc() {
+	(cd "$TMP" && printf '{}' | env -u CLAUDE_PROJECT_DIR \
+		HOME="${2:-$SCHOME}" PATH="${3:-/usr/bin:/bin}" \
+		GIT_CONFIG_GLOBAL="${4:-$TMP/gitconfig-empty}" GIT_CONFIG_SYSTEM=/dev/null \
+		CLAUDE_PLUGIN_ROOT="$1" sh "$GUARD/scripts/selfcheck.sh" 2>/dev/null)
+}
 
 out=$(sc "$GUARD")
 case "$out" in
@@ -139,6 +154,64 @@ cp -r "$GUARD" "$TMP/broken"
 printf '#!/usr/bin/env python3\nimport sys\nsys.stdin.read()\n' > "$TMP/broken/scripts/irreversible_ops.py"
 out=$(sc "$TMP/broken")
 contains '判定器が黙ると警告する' 'systemMessage' "$out"
+
+# ---------------------------------------------------------------- 四層の診断
+section '自己診断（四層）'
+
+# 未適用は異常ではない。層を入れていない環境の方が多いので、報告はしても警告はしない。
+# ここで警告すると毎セッション鳴り、やがて誰も読まなくなる。
+out=$(sc "$GUARD")
+contains '未適用の git 層を報告する'         'git 層: 未適用'         "$(printf '%s' "$out" | decode)"
+contains '未適用の permissions 層を報告する' 'permissions 層: 未適用' "$(printf '%s' "$out" | decode)"
+contains '未適用の OS/FS 層を報告する'       'OS/FS 層: 未適用'       "$(printf '%s' "$out" | decode)"
+case "$out" in
+	*systemMessage*) ng '未適用の層では警告しない' ;;
+	*) ok '未適用の層では警告しない' ;;
+esac
+
+# core.hooksPath が壊れたパスを指していても git は黙って hook を全て飛ばす。
+printf '[core]\n\thooksPath = %s/absent-hooks\n' "$TMP" > "$TMP/gitconfig-broken"
+out=$(sc "$GUARD" "$SCHOME" "/usr/bin:/bin" "$TMP/gitconfig-broken")
+contains 'core.hooksPath が壊れていれば警告する' 'systemMessage' "$out"
+
+printf '[core]\n\thooksPath = %s\n' "$ROOT/githooks" > "$TMP/gitconfig-ok"
+out=$(sc "$GUARD" "$SCHOME" "/usr/bin:/bin" "$TMP/gitconfig-ok" | decode)
+contains 'harness の githooks を指していれば有効' 'git 層: 有効' "$out"
+
+printf '{"permissions":{"deny":["Bash(dd:*)","Bash(shutdown:*)"]}}' > "$SCHOME/.claude/settings.json"
+out=$(sc "$GUARD" | decode)
+contains 'deny の件数を数える' 'deny 2 件' "$out"
+
+# 読めない設定ファイルは「deny 0 件」と区別する。前者は故障、後者は未適用。
+printf '{"permissions":' > "$SCHOME/.claude/settings.json"
+out=$(sc "$GUARD")
+contains '読めない設定ファイルを警告する' 'systemMessage' "$out"
+HARNESS_RM_REAL=1 /usr/bin/rm -f "$SCHOME/.claude/settings.json"
+
+ln -s "$ROOT/osfs/rm-guard" "$SCBIN/rm"
+printf '#!/bin/sh\nexit 0\n' > "$SCBIN/trash-put"
+chmod +x "$SCBIN/trash-put"
+out=$(sc "$GUARD" "$SCHOME" "$SCBIN:/usr/bin:/bin" | decode)
+contains 'PATH の rm が rm-guard なら有効' 'OS/FS 層: 有効' "$out"
+
+# ゴミ箱が無ければ rm-guard は全ての rm を止める。効いているが壊れている状態。
+# この機に trash-cli が入っていても影響されないよう、PATH は必要なものだけにする。
+SCBIN_BARE="$TMP/scbin-bare"
+mkdir -p "$SCBIN_BARE"
+ln -s "$ROOT/osfs/rm-guard" "$SCBIN_BARE/rm"
+for tool in sh python3 git; do
+	ln -s "$(command -v "$tool")" "$SCBIN_BARE/$tool"
+done
+out=$(sc "$GUARD" "$SCHOME" "$SCBIN_BARE")
+contains 'ゴミ箱が無ければ警告する' 'systemMessage' "$out"
+
+# 設置してあっても PATH の並びが違えば効かない。効かないことは何も起こさないので、
+# こちらから見に行かないと気付けない。
+SCHOME_UNUSED="$TMP/schome-pathmiss"
+mkdir -p "$SCHOME_UNUSED/.local/bin"
+ln -s "$ROOT/osfs/rm-guard" "$SCHOME_UNUSED/.local/bin/rm"
+out=$(sc "$GUARD" "$SCHOME_UNUSED")
+contains '設置済みでも PATH が拾わなければ警告する' 'systemMessage' "$out"
 
 # ---------------------------------------------------------------- session-harness
 section 'session-harness'

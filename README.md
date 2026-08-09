@@ -6,7 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（56 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（67 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -52,7 +52,10 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（56 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（67 項目）。失敗があれば非 0 で終了する。
+
+自己診断のテストは `HOME` / `PATH` / `GIT_CONFIG_GLOBAL` を隔離した値に差し替えて走る。
+四層の診断は環境そのものを読むため、そうしないとこの機の導入状況で結果が変わってしまう。
 
 **副作用は持たない。** git のテストは `HOME` ごと差し替えた隔離リポジトリで行うので、
 ユーザーのグローバル設定にも既存のリポジトリにも触れない。実行後に
@@ -477,6 +480,46 @@ rm -f /tmp/guardrails-manual-check   # 確認が出なければ、その環境�
 実体は `plugins/guardrails/scripts/selfcheck.sh`。異常系（`CLAUDE_PLUGIN_ROOT` 未設定、
 判定器が黙る）を壊した複製で実測したうえ、実際の `SessionStart` で発火することも
 `~/repos/harness` から新規セッションを起こして確認済み。
+
+#### 診断は四層すべてに掛かる
+
+当初はプラグイン層しか見ていなかった。その結果、**`permissions` 層が一件も適用されて
+いない状態が何セッションも気付かれずに続いた**。`SESSION_STATE.md` には「適用済み・12 件」と
+書いてあり、記録の方が実態から外れていた。手で書いた状態表は腐る。実測は腐らない。
+
+現在は毎セッション、四層を実際に読んで報告する。
+
+```
+guardrails: 有効（/path/to/plugins/guardrails、decision=ask）
+  git 層: 有効（/home/you/repos/harness/githooks）
+  permissions 層: deny 18 件
+  OS/FS 層: 有効（rm -> rm-guard）
+```
+
+| 層 | 何を見るか |
+|---|---|
+| プラグイン | `guard.sh` を合成ペイロードで起動し、決定が返るまで通しで確認 |
+| git | `core.hooksPath` が実在し、harness の `githooks` で、`pre-commit`/`pre-push` が実行可能か |
+| permissions | 実効 `settings.json`（user / project、`.local` 含む）の `deny` 件数 |
+| OS/FS | `PATH` 上の `rm` が `rm-guard` に解決されるか、`trash-put` があるか |
+
+**未適用と故障を区別する。ここが要点。**
+
+- **未適用** — 層を入れていない環境の方が多い。報告はするが警告はしない。
+  未適用で毎回鳴らすと、やがて誰も読まなくなる。
+- **導入済みで故障** — `systemMessage` で警告する。これだけが警告に値する。
+  「守られているつもりで守られていない」状態そのものだからだ。
+
+故障として拾うのは、いずれも**それ自体は何のエラーも出さない**ものばかり。
+
+- `core.hooksPath` が存在しないディレクトリを指している（git は hook を全て黙って飛ばす）
+- `pre-commit` から実行権限が落ちている（git は黙って飛ばす）
+- `settings.json` が壊れた JSON（`deny` が丸ごと効かなくなる）
+- `~/.local/bin/rm` に `rm-guard` を置いたが `PATH` の並びで拾われない
+- `rm-guard` は効いているが `trash-put` が無い（あらゆる `rm` が失敗する）
+
+`guardrails.disable=true` と「harness 以外の `hooksPath`」は、事故ではなく明示的な意思表示
+なので警告しない。ただし状態としては必ず出す——黙らないことと止めることは別。
 
 ### 「黙らない」は session-harness にも適用する
 
