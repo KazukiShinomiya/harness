@@ -8,9 +8,10 @@
 GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 **リポジトリは public**（<https://github.com/KazukiShinomiya/harness>）。master に push 済み。
 
-**`ask` という経路そのものが機能しない**（Claude Code v2.1.220）。PreToolUse フック経由でも
+**`ask` という経路そのものが機能しない**（Claude Code v2.1.220 で確定）。PreToolUse フック経由でも
 `permissions` の `ask` ルールでも確認が出ず、`deny` は両経路とも効く。対照実験で確定した。
 こちらでは直せないため、確実に止めたいものは `deny` と git 層へ寄せてある。
+**ただし 2026-08-09 時点でこの機の `claude` は 2.1.226 へ上がっており、直ったかは未検証。**
 
 **どの層が実際に効いているかは、ここに書かない。** 起動時の自己診断が四層を毎回実測して
 報告するので、それを読むこと。手で書いた表は機械が変われば嘘になる——実際、2026-08-02 版の
@@ -19,69 +20,57 @@ GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 
 ## 前回の戦果
 
-**自己診断をプラグイン層から四層へ広げた。** これまで見ていたのは `guard.sh` の往復だけで、
-残る三層は誰も見ていなかった。`permissions` 層が一件も適用されていない状態が何セッションも
-気付かれずに続いていたのは、それが理由。
+**プラグイン層だけが未適用だった。** 積み残しを洗っていて見つけた。marketplace が未登録で
+`enabledPlugins` も無く、`guardrails` も `session-harness` も動いていなかった。残る三層
+（permissions / git / OS/FS）は実測で生きていた。
 
-- **未適用と故障を分けた。** 層を入れていない環境の方が多いので、未適用は報告するだけで
-  警告しない（毎回鳴らせば読まれなくなる）。`systemMessage` を出すのは
-  「導入済みなのに機能していない」場合だけ。拾うのはいずれも**それ自体は何のエラーも
-  出さない**もの——`core.hooksPath` が壊れたパスを指す、`pre-commit` から実行権限が落ちる、
-  `settings.json` が壊れた JSON、`~/.local/bin/rm` を置いたのに PATH が拾わない、
-  `rm-guard` は効いているが `trash-put` が無い
-- **この機の実測: 三層とも未適用だった。** `git config --get core.hooksPath` は global も
-  local も rc=1、`~/.local/bin/rm` は存在せず、`trash-put` も未導入。
-  SESSION_STATE の表は別の機の状態を書いていた
-- テストを 56 → 67 項目へ。四層の診断は環境そのものを読むため、`HOME` / `PATH` /
-  `GIT_CONFIG_GLOBAL` を隔離した値へ差し替えて走らせる（そうしないとこの機の導入状況で
-  結果が変わる）。診断は 0.16 秒、`SessionStart` の timeout は 15 秒
+**皮肉なことに、これは自己診断が拾うはずの故障だった。** 診断を載せている層そのものが
+抜けていたので、誰も報告しなかった。「状態は書かずに測る」には、測る器械が生きていることの
+確認が要る——器械の不在だけは器械が言えない。
 
-**判定器の穴を三つ塞いだ**（テスト 67 → 85 項目）。
+- marketplace を**ローカルパス**（`~/repos/harness`）で登録し、両プラグインを導入。
+  診断が四層すべて「有効」と答えるようになった
+- `userConfig` は 4 項目とも既定値で足りる（`decision=ask`、`state_file=SESSION_STATE.md`）
 
-- **`rm` を綴り一致から意味判定へ。** `"rm -rf"` `"rm -r"` `"rm -f"` を literal で
-  並べていたため `rm -fr` が素通りしていた。綴りの列挙では必ず取りこぼす。
-  現在は `rm` の呼び出しを見つけてオプションを 1 文字ずつ見る（`-Rf`、
-  `--recursive --force`、`/bin/rm` も拾う）。`git rm` は git から戻せるので対象外
-- **単独パターンの `--build` を削除。** 意図していた `docker compose up --build` は
-  その前の行が先に拾うので、実際に発火するのは `make --build` のような無関係な
-  コマンドだけだった
-- **`protected_paths` の matcher に `Bash` を追加。** `echo x >> ~/.ssh/authorized_keys`
-  が素通りしていた。リダイレクト先と、書き込むと分かっているコマンド
-  （`tee` `cp` `mv` `install` `ln` `truncate` `dd` `sed -i`）の引数を拾う。
-  読み取りは対象にしない——`cat .env` まで拾うと確認だらけになり読まれなくなる
+**dotfiles と役割を整理した。** 正本（`~/repos/dotfiles`）の方が 14 件先行していて、
+`~/.claude` はその整備前で止まっていた。単純な同期ではなく双方向のマージになった。
 
-**CI を入れ、この機に残る三層を全部入れた。**
+- 正本→この機: `allow` 44 件・`defaultMode: acceptEdits`・SessionStart の `run-hook.sh` 化・
+  **インライン PreToolUse の撤去**（guardrails へ移譲済み）・`enabledPlugins`
+- この機→正本: deny 7 件（`sudo`/`su`/`doas` と設定ファイル保護）。push 済み（`417dc14`）
+- **`~/.claude/hooks/` が存在しなかった。** 正本の SessionStart フックは
+  `[ -x "$f" ]` が偽になり丸ごと不発だった（設計どおり黙って落ちる）。`setup.sh` が解消
 
-- **CI**（`.github/workflows/tests.yml`）。push と PR のたびに ubuntu-latest で
-  `tests/run.sh`。85 項目すべて成功することを実際の run で確認済み
-  （Python 3.12.3 / git 2.54.0、11 秒）
-- **git 層** — `core.hooksPath` をグローバル適用
-- **permissions 層** — **全 18 件**を適用（`sudo`/`su`/`doas` と設定ファイル保護も含む。
-  旧機の 12 件構成とは違う。これは君の判断）。既存の `allow` 17 件は無傷、
-  退避は `~/.claude/settings.json.bak`
-- **OS/FS 層** — `trash-cli` 0.23.11.10 を apt で導入し `rm-guard` を設置。
-  実測で確認した——`rm` した内容が生バイトのままゴミ箱にあり、元の場所からは消えている
+過去の戦果（要点のみ）: 自己診断を四層へ拡張、判定器の穴を三つ（`rm` の綴り一致→意味判定、
+`--build` の誤爆、`protected_paths` の Bash 対応）、CI 導入、この機への git / permissions /
+OS/FS 三層の適用。`tests/run.sh` は 85 項目、CI でも緑。
 
 順番に意味がある。**`Bash(sudo:*)` を deny する前に `trash-cli` を入れること。**
 deny は再起動不要で即座に効くため、先に入れるとエージェント経由の `sudo` が塞がる。
 
 ## 次の行動
 
-1. **`protected_paths` の Bash 対応は塞ぎ切っていない。** シェルは任意の書き込み方を
+1. **`ask` が 2.1.226 で直っていないか確かめる。** 直っていれば四層の設計前提が変わる
+   （「確実に止めたいものは `deny` と git 層へ」という寄せ方は `ask` が死んでいる前提の妥協）。
+   プラグイン層を入れた次のセッションなら PreToolUse 経由で試せる。
+   `rm -f /tmp/guardrails-manual-check` で確認が出るか見ればよい。
+   直っていたら上流 [#79356](https://github.com/anthropics/claude-code/issues/79356) にも報告すること。
+2. **`protected_paths` の Bash 対応は塞ぎ切っていない。** シェルは任意の書き込み方を
    許すので静的には拾えない（`python -c "open('.env','w')"`、`eval`、`exec 3>`）。
    広げるより、本当に失いたくないものを git 層と OS/FS 層へ寄せる方が筋がいい。
    **オプションの無い `rm file` も発火しない**——日常的すぎるのと、戻す役目は
    `rm-guard` が持っているため。変えるなら `find_rm_hit()` の 1 行。
-2. `chattr +i` は未適用のまま。代償が重い項目ばかりなので保留してある。
+3. `chattr +i` は未適用のまま。代償が重い項目ばかりなので保留してある。
    掛けるなら `osfs/immutable.sh status` を読んでから選ぶこと。
    **`~/.ssh/authorized_keys` を固める案は見送ったままでよい。ただし理由が機ごとに違う。**
    この機では `openssh-server` は導入済み（1:9.6p1）、`ssh` サービスは **active**、
    `authorized_keys` も**存在する**（0 バイト・鍵ゼロ）。「未導入だから守る対象が無い」
    という以前の記述はこの機には当てはまらない。それでも結論は同じ——空のまま固めると
    自分が鍵を足すときに詰まるだけ。鍵を入れたら、そのとき固めればよい。
-3. `session-harness` は初版のまま手付かず。急ぐ理由は無い。
-4. public にしたので、他人が入れられる状態になった。`install.sh` は四層のうち
-   プラグイン層しか入れないため、外からなぞると残り三層を落とす（未検証）。
+4. `session-harness` は初版のまま手付かず。急ぐ理由は無い（動いてはいる）。
+5. public にしたので、他人が入れられる状態になった。`install.sh` は四層のうち
+   プラグイン層しか入れないため、外からなぞると残り三層を落とす。
+   **この機ではローカルパス登録で入れたので、`install.sh` の経路は依然として未検証。**
 
 ## 決定事項・メモ
 
@@ -114,6 +103,19 @@ deny は再起動不要で即座に効くため、先に入れるとエージェ
   プラグインは動的判定、OS/FS 層は呼び出し元を問わない。同じことを複数層でやろうとしない。
 - **判定器は `guard.sh` 経由で呼び、exit 2 を返さない**（ブロック扱いになるため）。
 - **導入は手順ゼロにできない。** プロジェクトスコープの `extraKnownMarketplaces` は効かない（実測）。
+- **この機の marketplace はローカルパス登録**（`~/repos/harness`。`install.sh` の GitHub 経由ではない）。
+  ここは harness 自体の開発機なので、ローカルの修正が push を挟まず即反映される方が都合がよい。
+  外から入れる人は `install.sh` をなぞる。`claude plugin marketplace list` は絶対パスで解決を報告する。
+- **dotfiles と harness の役割分担。** 正本 `dotfiles/.claude/settings.json` が
+  `enabledPlugins` と `extraKnownMarketplaces` を持ち、harness が実体を配る。
+  dotfiles の `setup.sh` は**導入まではせず**、未登録なら手順を出して知らせるだけ
+  （外部リポジトリの取得は人間の手に残す設計）。`~/.claude/settings.json` は
+  正本＋`settings.machine.json` の**シャロー top-level マージ**を `setup.sh` が生成する
+  プレーンコピー——正本を編集したらこの機で `setup.sh` を再実行しないと反映されない。
+  マージが浅いので `settings.machine.json` に `permissions` を書くと正本の同ブロックが丸ごと消える。
+- **層を settings.json からプラグインへ移す瞬間、谷間ができる。** プラグインのフックは
+  新セッションでしか読まれないのに、`settings.json` の撤去は即座に効く。移譲した当日の
+  セッションは無防備になる。順序を選べるなら、プラグインを入れてから撤去すること。
 - **`githooks` の保護パターンと `protected_paths.py` は意図的に重複させてある。**
   片方を変えたらもう片方も見ること。`tests/run.sh` が主要パターンの両層存在を確認する。
 - **変更したら `tests/run.sh` を通すこと。** 使い捨てのコマンドで確認して終わりにしない。
