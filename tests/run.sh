@@ -384,6 +384,25 @@ HOME="$OSFS_HOME" sh "$ROOT/osfs/immutable.sh" lock >/dev/null 2>&1
 HOME="$OSFS_HOME" sh "$ROOT/osfs/immutable.sh" bogus >/dev/null 2>&1
 [ $? -eq 2 ] && ok '未知のコマンドは使い方を出して終わる' || ng '未知コマンドで想定外の終了'
 
+# settings.json が実体コピーか symlink かで +i の代償が変わる（外部管理なら
+# その反映経路が止まる）。一般論ではなく今の状態を出すこと。
+IMHOME="$TMP/imhome"
+mkdir -p "$IMHOME/.claude"
+# 'ファイルが無い' だけだと候補リスト側の状態表示（.gitconfig 等の不在）に
+# マッチして、この行が無くても通る。末尾の注意書き側だけを指す形で見ること。
+out=$(HOME="$IMHOME" sh "$ROOT/osfs/immutable.sh" status 2>&1)
+contains 'settings.json が無ければ無いと言う' 'settings.json: ファイルが無い' "$out"
+
+printf '{}\n' > "$IMHOME/.claude/settings.json"
+out=$(HOME="$IMHOME" sh "$ROOT/osfs/immutable.sh" status 2>&1)
+contains '実体コピーなら symlink でないと言う' 'symlink ではない' "$out"
+
+printf '{}\n' > "$IMHOME/canonical.json"
+ln -sf "$IMHOME/canonical.json" "$IMHOME/.claude/settings.json"
+out=$(HOME="$IMHOME" sh "$ROOT/osfs/immutable.sh" status 2>&1)
+# 'canonical.json' だけだと readlink -f を出す旧実装でも通る。新しい言い回しで見る。
+contains 'symlink なら実体の在り処を出す' 'の実体は' "$out"
+
 # ---------------------------------------------------------------- git 層
 section 'githooks（隔離リポジトリ）'
 

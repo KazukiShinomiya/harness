@@ -361,7 +361,7 @@ zsh 組み込みの 3 件しか無かった。エージェントの `rm` を覆�
 | 対象 | 守るもの | 代償 |
 |---|---|---|
 | `~/.gitconfig` | `core.hooksPath`（git 層の入口） | `git config --global` が全て失敗する |
-| `~/.claude/settings.json` | `enabledPlugins`、`permissions.deny` | Claude Code 自身が設定を書けなくなる |
+| `~/.claude/settings.json` | `enabledPlugins`、`permissions.deny` | Claude Code 自身が設定を書けなくなる。dotfiles 等の外部で管理していれば、そこからの反映も止まる |
 | `~/.ssh/authorized_keys` | 鍵の追加による侵入経路 | 鍵の管理が手作業になる |
 
 代償の方が大きい場合が多いので、一括で掛ける口は用意していない。

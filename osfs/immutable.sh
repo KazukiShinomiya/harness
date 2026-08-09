@@ -19,7 +19,7 @@ set -u
 # <パス>|<守るもの>|<副作用>
 CANDIDATES="\
 ${HOME}/.gitconfig|core.hooksPath（git 層の入口）|git config --global が全て失敗する
-${HOME}/.claude/settings.json|enabledPlugins と permissions.deny|Claude Code 自身が設定を書けなくなる（/plugin での有効化・権限の追加も含む）
+${HOME}/.claude/settings.json|enabledPlugins と permissions.deny|Claude Code 自身が設定を書けなくなる（/plugin での有効化・権限の追加も含む）。dotfiles 等の外部でこのファイルを管理していると、そこからの反映も止まる——実体コピーを置く方式なら上書きが、symlink 方式なら実体側の pull が失敗する
 ${HOME}/.ssh/authorized_keys|鍵の追加による侵入経路|鍵の追加・削除が手作業になる"
 
 usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -45,8 +45,19 @@ show_status() {
 	done
 
 	printf '注意: symlink には +i を掛けても意味が薄い。実体側に掛けること。\n'
-	printf '  例: %s は実体が %s のことがある\n' \
-		"${HOME}/.claude/settings.json" "$(readlink -f "${HOME}/.claude/settings.json" 2>/dev/null || printf '(未解決)')"
+	# 実体コピーか symlink かで代償が変わる（外部管理なら、その反映経路が止まる）ため
+	# 一般論ではなく今の状態を出す。
+	sj="${HOME}/.claude/settings.json"
+	real=$(readlink -f "$sj" 2>/dev/null) || real=''
+	if [ ! -e "$sj" ]; then
+		printf '  %s: ファイルが無い\n' "$sj"
+	elif [ -z "$real" ]; then
+		printf '  %s: 実体を解決できない\n' "$sj"
+	elif [ "$real" = "$sj" ]; then
+		printf '  %s は symlink ではない（それ自体が実体）\n' "$sj"
+	else
+		printf '  %s の実体は %s\n' "$sj" "$real"
+	fi
 }
 
 apply() {
