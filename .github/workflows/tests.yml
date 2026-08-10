@@ -20,7 +20,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 で Node 24 へ移行した。v4 は Node 20 が非推奨になり、ランナー側で
+      # 強制的に 24 で走らされて警告が出ていた（2026-08-10 の run で確認）。
+      - uses: actions/checkout@v5
 
       # 何で走ったのかを残す。失敗したときに環境差を疑えるようにするため。
       - name: 環境
