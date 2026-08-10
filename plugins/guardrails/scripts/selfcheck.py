@@ -331,8 +331,8 @@ def emit(plugin_problems, layers, root):
     if current == "ask":
         caveat = (
             "注意: \"ask\" の確認ダイアログが表示されない環境がある"
-            "（v2.1.220 の WSL2 機で実測。v2.1.226 のネイティブ Linux 機では表示される）。"
-            "permissions の ask ルールはどちらでも表示されない。deny はどの環境でも効く。"
+            "（v2.1.220 の WSL2 機で実測。v2.1.226 のネイティブ Linux 機では"
+            "PreToolUse・permissions の両経路とも表示される）。deny はどの環境でも効く。"
             "この環境で出るかは次で確かめられる"
             "（ファイルは存在しないので Yes と答えても副作用は無い）:\n"
             "  rm -f /tmp/guardrails-manual-check\n"
