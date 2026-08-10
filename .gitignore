@@ -2,3 +2,8 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+# Claude Code がメモリ上の設定で書き戻すファイル。権限の実験値が残ったまま
+# 入りうる。この機ではグローバルの ~/.config/git/ignore が同じものを無視して
+# いるが、それは機ごとの設定で他のクローンには無い。リポジトリ側にも持たせる。
+.claude/settings.local.json
