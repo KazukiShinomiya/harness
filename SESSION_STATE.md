@@ -59,7 +59,16 @@ GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 上書きし、`echo harness-ask-probe` を単独で撃つと確認が出た。人間が目視して No を押した。
 2026-08-09 の「素通し」はこれで撤回。**`selfcheck.py` の注意書きが毎セッション嘘を
 ついていた**（「permissions の ask ルールはどちらでも表示されない」）ので最優先で直し、
-`README.md` と `docs/upstream-report-draft.md` も揃えた。テストは 95 / 0 のまま。
+`README.md` と `docs/upstream-report-draft.md` も揃えた。
+
+**`.claude/settings.local.json` の無視がグローバル設定頼みだったのを直した。** 効いて
+いたのはこの機の `~/.config/git/ignore` で、機ごとの設定なので他のクローンには無かった。
+Claude Code がこのファイルへ書き戻す性質と重なると、権限の実験値が残ったまま `git add` に
+拾われうる。リポジトリの `.gitignore` へ移し、`git -c core.excludesFile=/dev/null
+check-ignore -v` で測って**グローバルを無効にしても `.gitignore` 側がマッチする**ことを
+確認した。
+
+テストは 95 / 0。二つのコミットとも push 済みで、GitHub Actions もどちらも success。
 
 **測り方の道具が一つ増えた。人間が「No を押す」と決めておくと、確認が出たことが
 エージェント側にも届く**——拒否はツールがエラーを返すので、承認と戻り値が分かれる。
@@ -251,6 +260,10 @@ deny は再起動不要で即座に効くため、先に入れるとエージェ
   読み込まれない（`session-harness` が「どこを探したか」を報告するので気付ける）。
 - **Claude Code は `.claude/settings.local.json` をメモリ上の設定で書き戻す。** 実験で入れた
   `pluginConfigs` を消しても、権限追加のタイミングで復活した。実験値は最後に必ず確認して消すこと。
+  2026-08-10 にリポジトリの `.gitignore` へも入れた。それまで無視していたのはこの機の
+  グローバル `~/.config/git/ignore` だけで、**他のクローンには保護が無かった**。
+  「無視されている」を見たら、どのファイルのどの行が効いているかまで見ること
+  （`check-ignore -v` は出どころを出す）。
 - 上流報告は既存 [#79356](https://github.com/anthropics/claude-code/issues/79356) へコメント済み
   （[投稿](https://github.com/anthropics/claude-code/issues/79356#issuecomment-5157316941)）。
   Linux / Bash / v2.1.220 でも再現することを対照実験ごと足した。
