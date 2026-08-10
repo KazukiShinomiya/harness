@@ -54,17 +54,46 @@ WRITING_COMMANDS = frozenset(("tee", "cp", "mv", "install", "ln", "truncate", "d
 # コマンドの区切り。ここで「書き込みコマンドの引数」の解釈を打ち切る。
 BOUNDARIES = frozenset((";", "&&", "||", "|", "|&", "&"))
 
+# `-c` の引数がそれ自体シェルコマンドになるもの。中身はただの文字列なので、同じ判定を
+# 再帰的に当てられる。当てないと、サブシェルで包むだけでこの層を抜けられた（実測）。
+SHELL_RUNNERS = frozenset(("bash", "sh", "zsh", "dash", "ksh"))
+
+# 再帰の深さ。入れ子は現実には浅い。文字列は潜るたびに短くなるので停止はするが、
+# 際限なく潜る必要もない。
+MAX_SHELL_DEPTH = 3
+
 
 def matches(path, pattern):
     return fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(os.path.basename(path), pattern)
 
 
-def bash_write_targets(command):
+def shell_command_argument(tokens, index):
+    """`bash -c '<cmd>'` の `<cmd>` を返す。無ければ None。
+
+    `-c` より前に非オプションが来たら、それはスクリプトファイルの実行であって
+    文字列の評価ではない（`bash script.sh`）。中身を静的には読めないので対象外。
+    """
+    for position in range(index + 1, len(tokens)):
+        token = tokens[position]
+        if token in BOUNDARIES:
+            return None
+        if token == "-c":
+            return tokens[position + 1] if position + 1 < len(tokens) else None
+        if not token.startswith("-"):
+            return None
+    return None
+
+
+def bash_write_targets(command, depth=0):
     """コマンド文字列から、書き込み先になり得るパスを拾う。
 
     **完全ではない。** シェルは任意の書き込み方を許すので、静的に全部は拾えない。
-    ここで拾えるのはリダイレクト先と、書き込むと分かっているコマンドの引数だけ。
-    拾えないもの（`python -c` の中、`>` が引用符に隠れている場合、変数展開の先など）は
+    ここで拾えるのはリダイレクト先、書き込むと分かっているコマンドの引数、そして
+    `bash -c '...'` / `eval '...'` の中身。最後のものは引数がただの文字列なので、
+    同じ関数を再帰的に当てれば読める——以前は「静的には無理」の側に分類していたが、
+    それは誤りで、サブシェルで包むだけでこの層を抜けられていた（実測して塞いだ）。
+
+    それでも拾えないもの（`python -c` の中、実行時に決まる変数展開の先など）は
     README に穴として書いてある。**塞いだつもりにならないこと。**
 
     読み取りは対象にしない。この層は「書き込む前に確認する」ためのもので、
@@ -75,7 +104,7 @@ def bash_write_targets(command):
     after_redirect = False
     writing = False
 
-    for token in tokens:
+    for index, token in enumerate(tokens):
         # `cp a b; ls` のように区切りが直前の語へくっつくことがある。
         ends_segment = token.endswith(";")
         if ends_segment:
@@ -95,6 +124,13 @@ def bash_write_targets(command):
                     after_redirect = True
                 elif not rest.startswith("&"):  # 2>&1 はファイル記述子であってパスではない
                     targets.append(rest)
+            elif depth < MAX_SHELL_DEPTH and os.path.basename(token) in SHELL_RUNNERS:
+                nested = shell_command_argument(tokens, index)
+                if nested:
+                    targets += bash_write_targets(nested, depth + 1)
+            elif depth < MAX_SHELL_DEPTH and token == "eval":
+                # eval は残りの引数を連結して評価する。連結してから同じ判定を当てる。
+                targets += bash_write_targets(" ".join(tokens[index + 1:]), depth + 1)
             elif os.path.basename(token) in WRITING_COMMANDS:
                 # sed が書き込むのは -i が付いたときだけ。
                 writing = os.path.basename(token) != "sed" or any(

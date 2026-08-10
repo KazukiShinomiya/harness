@@ -128,6 +128,38 @@ for writing in 'echo x >> /home/ubuntu/.ssh/authorized_keys' 'echo x >/tmp/p/.en
 	contains "Bash 経由の書き込みを拾う: $writing" '保護対象への書き込み' "$(printf '%s' "$out" | decode)"
 done
 
+# サブシェルで包むだけで抜けられるなら、守っていることにならない。`bash -c` の引数は
+# ただの文字列なので、同じ判定を再帰的に当てられる。以前は「静的には無理」の側に
+# 分類していたが誤りで、実測したら素通りしていた。
+for nested in "bash -c 'echo x > /tmp/p/.env'" "sh -c 'tee -a /tmp/p/.env'" \
+	"eval 'echo x > /tmp/p/.env'" "zsh -c 'cp /tmp/p/secret.pem /tmp/b'"; do
+	out=$(judge protected_paths.py "$(printf '{"tool_input":{"command":"%s"}}' "$nested")")
+	contains "サブシェルの中身も見る: $nested" '保護対象への書き込み' "$(printf '%s' "$out" | decode)"
+done
+
+# 再帰で誤爆を増やさないこと。中身が無害なら素通し、スクリプト実行は中身を読めない。
+out=$(judge protected_paths.py "$(printf '{"tool_input":{"command":"%s"}}' "bash -c 'echo hi > /tmp/plain.txt'")")
+empty '中身が無害なサブシェルは素通しする' "$out"
+
+out=$(judge protected_paths.py '{"tool_input":{"command":"bash script.sh"}}')
+empty 'スクリプト実行は中身を読めないので対象外' "$out"
+
+# 入れ子には上限がある（MAX_SHELL_DEPTH）。3 段までは潜り、その先は見ない。
+# **これは穴として残っている。** 塞いだつもりにならないよう、境界を固定しておく。
+nest_json() {
+	python3 -c '
+import json, shlex, sys
+inner = "echo x > /tmp/p/.env"
+for _ in range(int(sys.argv[1])):
+    inner = "bash -c " + shlex.quote(inner)
+print(json.dumps({"tool_input": {"command": inner}}))
+' "$1"
+}
+out=$(judge protected_paths.py "$(nest_json 3)")
+contains '入れ子は 3 段までなら潜る' '保護対象への書き込み' "$(printf '%s' "$out" | decode)"
+out=$(judge protected_paths.py "$(nest_json 4)")
+empty '入れ子 4 段目からは見ない（穴として残す）' "$out"
+
 # 読み取りは対象にしない。ここまで拾うと日常操作が確認だらけになる。
 out=$(judge protected_paths.py '{"tool_input":{"command":"cat /tmp/p/.env"}}')
 empty '読み取りでは発火しない' "$out"
