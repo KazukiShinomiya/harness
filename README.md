@@ -634,6 +634,13 @@ SESSION_STATE の並びが「現在の状況 / 前回の戦果 / 次の行動 / 
 `additionalContext` は Claude にだけ渡り、人間の画面には出ない。
 Claude にだけ「切った」と伝えても、ファイルは永遠に太り続ける。
 
+**画面に届くことは実セッションで確認済み**（2026-08-13、v2.1.229 / ネイティブ Linux）。
+`SESSION_STATE.md` を 136KB へ膨らませて新セッションを立てると、起動画面に
+`SessionStart:startup says: session-harness: … が上限 65536 バイトを超えた。末尾 667 行を
+切って注入した …` が出た。**テストの JSON に `systemMessage` が入っていることは、
+それが人間に届く証拠にならない**——同じ `SessionStart` の `additionalContext` は
+画面に出ないのだから、経路が違えば結果も違う。人間が目視するまでは未検証として扱うこと。
+
 ### プラグインの settings.json では permissions を配れない
 
 Claude Code のプラグインが `settings.json` で供給できるのは `agent` と `subagentStatusLine` の 2 キーのみ。
@@ -811,8 +818,9 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 - [x] **`session-harness` に注入の上限を入れた**（`userConfig.max_bytes`、既定 65536）。
       それまでは状態ファイルが何バイトあっても全量が毎セッション文脈へ入っていた——
       「軽量に保つ」は原則でしかなく、破っても何も起きなかった。切ったことは
-      `systemMessage` でユーザーにも出す（縮める判断ができるのは人間だけ）。
-      テストは 103 → 112 で、9 件とも壊した複製で落ちることを確認済み
+      `systemMessage` でユーザーにも出す（縮める判断ができるのは人間だけ）。**画面へ
+      届くことは実セッションで目視済み**（v2.1.229）。テストは 103 → 112 で、
+      9 件とも壊した複製で落ちることを確認済み
       （[詳細](#黙らないは-session-harness-にも適用する)）
 
 ## License
