@@ -39,6 +39,14 @@ empty() {
 	if [ -z "$2" ]; then ok "$1"; else ng "$1 -- 出力があった: $(printf '%.90s' "$2")"; fi
 }
 
+# lacks <説明> <出てはいけない部分文字列> <実際>
+lacks() {
+	case "$3" in
+		*"$2"*) ng "$1 -- '$2' が出てしまった" ;;
+		*) ok "$1" ;;
+	esac
+}
+
 judge() { printf '%s' "$2" | python3 "$GUARD/scripts/$1" 2>/dev/null; }
 
 # json.dump は既定で非 ASCII を \uXXXX に符号化するため、生の JSON には日本語が現れない。
@@ -54,6 +62,19 @@ print(d.get("systemMessage", ""))
 hs = d.get("hookSpecificOutput", {})
 print(hs.get("additionalContext", ""))
 print(hs.get("permissionDecisionReason", ""))
+' 2>/dev/null
+}
+
+# decode は additionalContext も混ぜて出すので、「ユーザーの画面にも出るか」を
+# 測るときはこちらを使う。additionalContext は Claude にしか渡らない。
+sysmsg() {
+	python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print(d.get("systemMessage", ""))
 ' 2>/dev/null
 }
 
@@ -351,6 +372,49 @@ contains '空のときはその旨を伝える'     'は空だった'   "$(ss "$
 
 out=$(printf '{}' | CLAUDE_PLUGIN_ROOT="$SESS" PATH=/nonexistent /bin/sh "$SESS/scripts/session_state.sh" 2>/dev/null)
 contains 'python が無ければ警告する' 'systemMessage' "$out"
+
+# state_file は userConfig 由来。環境変数として本当に届くかは一度も測っていなかった。
+mkdir -p "$TMP/altname"
+printf '# HANDOFF\n\n別名で置いた。\n' > "$TMP/altname/HANDOFF.md"
+out=$(printf '{}' | CLAUDE_PLUGIN_ROOT="$SESS" CLAUDE_PROJECT_DIR="$TMP/altname" \
+	CLAUDE_PLUGIN_OPTION_STATE_FILE=HANDOFF.md sh "$SESS/scripts/session_state.sh" 2>/dev/null | decode)
+contains 'state_file で別名を読める' '別名で置いた' "$out"
+
+# ssb <PROJECT_DIR> <MAX_BYTES>  第 2 引数が空なら未設定のまま呼ぶ（既定値の経路）
+ssb() {
+	if [ -z "$2" ]; then
+		printf '{}' | CLAUDE_PLUGIN_ROOT="$SESS" CLAUDE_PROJECT_DIR="$1" \
+			sh "$SESS/scripts/session_state.sh" 2>/dev/null
+	else
+		printf '{}' | CLAUDE_PLUGIN_ROOT="$SESS" CLAUDE_PROJECT_DIR="$1" \
+			CLAUDE_PLUGIN_OPTION_MAX_BYTES="$2" sh "$SESS/scripts/session_state.sh" 2>/dev/null
+	fi
+}
+
+mkdir -p "$TMP/bigstate"
+python3 -c "
+open('$TMP/bigstate/SESSION_STATE.md', 'w').write(
+    ''.join('行 %d の中身\n' % i for i in range(5000)))
+"
+
+out=$(ssb "$TMP/bigstate" '' | decode)
+contains '上限を超えたら切る'         '行を切った'   "$out"
+contains '切ったら先頭は残る'         '行 0 の中身'  "$out"
+lacks   '切ったら末尾は落ちる'        '行 4999 の中身' "$out"
+contains '切ったらユーザーにも警告する' 'ファイルを縮めるか' "$(ssb "$TMP/bigstate" '' | sysmsg)"
+
+# 決定的な単一値で見る。切り詰めた本文は上限を超えない（前後の説明文の分だけ上回る）。
+n=$(ssb "$TMP/bigstate" 1024 | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ctx = d["hookSpecificOutput"]["additionalContext"]
+print(len(ctx.split("\n\n", 1)[1].encode("utf-8")))
+')
+[ "$n" -le 1024 ] && ok '切った本文は上限に収まる' || ng "上限 1024 を超えた ($n バイト)"
+
+lacks   '上限内なら切らない' '行を切った' "$(ssb "$TMP/withstate" '' | decode)"
+contains '0 なら無制限'      '行 4999 の中身' "$(ssb "$TMP/bigstate" 0 | decode)"
+contains '読めない値は既定へ倒し、そう言う' '数として読めなかった' "$(ssb "$TMP/withstate" abc | decode)"
 
 # ---------------------------------------------------------------- permissions
 section 'permissions/apply.py'

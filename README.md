@@ -6,7 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（103 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（112 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -53,7 +53,7 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（103 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（112 項目）。失敗があれば非 0 で終了する。
 
 自己診断のテストは `HOME` / `PATH` / `GIT_CONFIG_GLOBAL` を隔離した値に差し替えて走る。
 四層の診断は環境そのものを読むため、そうしないとこのマシンの導入状況で結果が変わってしまう。
@@ -608,11 +608,12 @@ guardrails: 有効（/path/to/plugins/guardrails、decision=ask）
 実際に別ディレクトリから起動したセッションが前回の経緯を知らないまま始まり、
 セッションログを漁って復元する羽目になった。
 
-現在は六通りを区別して報告する。
+現在は七通りを区別して報告する。
 
 | 状況 | 報告 |
 |---|---|
 | 読み込めた | どのパスから読んだかを添えて注入 |
+| 大きすぎる | 先頭から上限まで注入し、**落とした行数**を添える。`systemMessage` でユーザーにも警告 |
 | ファイルが無い | **どこを探したか**を伝える。起動位置の取り違えに気付ける唯一の手がかり |
 | 空だった | その旨 |
 | 読めなかった | `systemMessage` でユーザーにも警告 |
@@ -621,6 +622,17 @@ guardrails: 有効（/path/to/plugins/guardrails、decision=ask）
 
 止めも確認もしない点は変わらない。**黙らないことと止めることは別**で、
 危険でないものを止める必要は無いが、黙ってよいわけでもない。
+
+「大きすぎる」を足したのは、**状態ファイルが毎セッション全量が文脈へ入る**ため。
+「軽量に保つ」は `SKILL.md` が書いている原則でしかなく、破っても何も起きなかった——
+1MB のファイルを置けば 1MB がそのまま注入される（実測）。上限（`userConfig.max_bytes`、
+既定 65536。0 以下で無制限）を超えた分は**行単位で末尾から**落とす。残すのが先頭なのは、
+SESSION_STATE の並びが「現在の状況 / 前回の戦果 / 次の行動 / 決定事項」で、
+次のセッションが要るものが前半に寄っているため。
+
+**切ったことは `systemMessage` でユーザーにも出す。** 縮める判断ができるのは人間だけで、
+`additionalContext` は Claude にだけ渡り、人間の画面には出ない。
+Claude にだけ「切った」と伝えても、ファイルは永遠に太り続ける。
 
 ### プラグインの settings.json では permissions を配れない
 
@@ -741,7 +753,7 @@ claude plugin install session-harness@harness   # 先に引き継ぎ先を立て
 SESSION_STATE が重複注入されていないことを確認した。
 
 `session_state.py` はグローバル側と等価以上（`userConfig.state_file` でファイル名を変えられ、
-空ファイルも弾き、失敗時は黙らず報告する）。
+`userConfig.max_bytes` で注入量に上限を掛けられ、空ファイルも弾き、失敗時は黙らず報告する）。
 
 なお `~/.claude/settings.json` の正本は `~/dotfiles/.claude/settings.json` 側にあるため、
 削除は dotfiles 側で行い同期する。
@@ -776,8 +788,8 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
 
 - [x] **グローバル設定からの移行が完了。** `session-harness` を先に入れて注入を確認してから、
       移植元の `PreToolUse`（Bash）と `SessionStart`（SESSION_STATE 注入分）を削除した
-- [x] `session-harness` も黙らなくなった。読み込めた / 無い / 空 / 読めない / python 不在 /
-      `CLAUDE_PLUGIN_ROOT` 未設定 の 6 通りを区別して報告する（全経路を実測）
+- [x] `session-harness` も黙らなくなった。読み込めた / 大きすぎる / 無い / 空 / 読めない /
+      python 不在 / `CLAUDE_PLUGIN_ROOT` 未設定 の 7 通りを区別して報告する（全経路を実測）
 - [x] **導入を手順ゼロにはできない。** プロジェクトスコープの `extraKnownMarketplaces` は
       効かない（対照実験で確定）。`install.sh` で 2 コマンドに包む形に落とした
 - [x] `githooks` をグローバル（`core.hooksPath`）へ適用済み。適用前に影響を実測し、
@@ -796,7 +808,12 @@ hooks を書き足しても `/hooks` に現れず、さらに Claude Code 自身
       あちらは Windows / PowerShell で報告され `platform:windows` ラベルが付いていたので、
       Linux / Bash / v2.1.220 でも再現することを対照実験ごと足した。顛末は
       [`docs/upstream-report-draft.md`](docs/upstream-report-draft.md)
-- [ ] `session-harness` は初版のまま手付かず
+- [x] **`session-harness` に注入の上限を入れた**（`userConfig.max_bytes`、既定 65536）。
+      それまでは状態ファイルが何バイトあっても全量が毎セッション文脈へ入っていた——
+      「軽量に保つ」は原則でしかなく、破っても何も起きなかった。切ったことは
+      `systemMessage` でユーザーにも出す（縮める判断ができるのは人間だけ）。
+      テストは 103 → 112 で、9 件とも壊した複製で落ちることを確認済み
+      （[詳細](#黙らないは-session-harness-にも適用する)）
 
 ## License
 

@@ -13,6 +13,12 @@
       "title": "状態ファイル名",
       "description": "セッション開始時に読み込むファイル名。プロジェクトルートからの相対パス。",
       "default": "SESSION_STATE.md"
+    },
+    "max_bytes": {
+      "type": "string",
+      "title": "注入する上限バイト数",
+      "description": "これを超えた分は行単位で末尾から落とし、切ったことを Claude とユーザーの両方へ伝える。0 以下で無制限。",
+      "default": "65536"
     }
   }
 }
