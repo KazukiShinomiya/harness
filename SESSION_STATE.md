@@ -16,13 +16,25 @@ GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 | v2.1.220 / WSL2（Linux 5.15） | PreToolUse の ask | 素通し |
 | **v2.1.226 / この機** | **PreToolUse の ask** | **確認ダイアログが出る** |
 | **v2.1.226 / この機** | **`permissions` の ask** | **確認ダイアログが出る**（08-10 に測り直し） |
+| **v2.1.229 / この機** | **PreToolUse の ask** | **確認ダイアログが出る**（08-13 に測り直し） |
+| **v2.1.229 / この機** | **`permissions` の ask** | **確認ダイアログが出る**（08-13 に測り直し） |
 | 非対話 `-p` | PreToolUse の ask | denied（測定不能） |
 
 **「v2.1.226 で直った」とは書けない。** v2.1.220 の実測は WSL2 機で取ったもので、
 版と機が同時に動いている。同じ機で両方の版を撃つまで原因は切り分けられない。
 
-**2026-08-13 に版が v2.1.229 へ上がっているのを確認した（起動画面）。この版では `ask` を
-測り直していない。** 上の表はすべて v2.1.226 で取ったもので、現行版の実測ではない。
+**2026-08-13 に v2.1.229 で両経路を測り直した。どちらも確認ダイアログが出る。**
+`rm -f /tmp/guardrails-manual-check`（PreToolUse）と `echo harness-ask-probe`
+（`permissions.ask`。`allow` にある `Bash(echo:*)` を上書き）をそれぞれ**単独で**撃ち、
+人間が画面を貼って報告した。実験値は `.claude/settings.local.json` から消し、
+`grep -c '"ask"'` が 0 を返すことまで確認済み。
+
+**確認の出どころは文言で分かる。** PreToolUse 由来は
+`Hook PreToolUse:Bash requires confirmation for this command:` に続けて判定器の理由文が出て
+`[plugin:guardrails]` が付く。`permissions` 由来は
+`Permission rule Bash(echo:*) requires confirmation for this command.` と**一致したルールを
+名指しする**。ただし**ルールに当たらない既定の確認の文言は今回観測していない**ので、
+「文言だけで ask 由来と断定できる」とまでは言えない。`allow` を上書きする測り方は依然要る。
 
 非対話の denied は**何の証拠にもならない**。`-p` は確認を出す相手がいないので安全側へ
 倒れるだけだ（debug ログに `Hook result has permissionBehavior=ask` →
@@ -57,6 +69,11 @@ GitHub Actions でも走る**（`.github/workflows/tests.yml`）。
 三層とも入っていなかった。診断を入れた初日にそれが露見した。
 
 ## 前回の戦果
+
+**v2.1.229 で `ask` を両経路とも測り直した。どちらも確認ダイアログが出る。** 版が上がって
+いるのに気付いたのは、上限の実測で人間が貼った起動画面（`v2.1.229`）。表の実測はすべて
+v2.1.226 のもので現行版のものではなかった——**版は黙って上がる。** 測り方は決定事項どおり、
+単独コマンド・`allow` の上書き・人間の目視。実験値は消して `grep -c` で 0 を確認した。
 
 **`session-harness` に注入の上限を入れた（`userConfig.max_bytes`、既定 65536）。** それまで
 状態ファイルは**何バイトあっても全量が毎セッション文脈へ入っていた**——「軽量に保つ」は
