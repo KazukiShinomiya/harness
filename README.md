@@ -243,8 +243,9 @@ husky の設定へ組み込む。
 
 ## permissions 層（deny のみ）
 
-`permissions` の `ask` ルールはどの版でも素通しになる（[詳細](#ask-は環境によって黙って消える実測)）。
-この層で本当に効くのは `deny` だけになる。
+`permissions` の `ask` ルールが確認として表示されるかは**環境に依る**——v2.1.220 / WSL2 では
+素通しになり、v2.1.226 / ネイティブ Linux では出た（[詳細](#ask-は環境によって黙って消える実測)）。
+どの環境でも効くのは `deny` だけなので、この層は `deny` に絞る。
 `permissions/deny-recommended.json` がその雛形で、`permissions/apply.py` で差分マージする。
 
 ```bash
