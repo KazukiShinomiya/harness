@@ -23,6 +23,8 @@
 |---|---|---|
 | `guardrails` | 不可逆操作（commit/push/reset/rm 等）と保護パスへの書き込みの前に確認を挟む | 条件付き（PreToolUse hook。既定の `ask` が表示されない環境では素通しになる。[詳細](#ask-は環境によって黙って消える実測)） |
 | `session-harness` | `SESSION_STATE.md` の読み込みと更新運用 | なし（hook による文脈注入 + skill）。失敗と不在は報告する |
+| `stepwise` | 手順を 1 件ずつ承認を得てから進める | なし（skill のみ。従うかはモデル次第） |
+| `herdr-view` | herdr の隣のペインに diff (hunk)・Markdown (leaf)・terraform plan を表示する | なし（skill のみ。herdr の外では使わない） |
 
 責務で分けてある。ガードレールだけ欲しい相手にセッション運用まで押し付けないため。
 

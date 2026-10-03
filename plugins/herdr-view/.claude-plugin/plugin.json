@@ -1,0 +1,10 @@
+{
+  "name": "herdr-view",
+  "description": "herdr の隣のペインに diff (hunk)・Markdown (leaf)・terraform plan を表示する skill",
+  "version": "0.1.0",
+  "author": {
+    "name": "k1981"
+  },
+  "license": "MIT",
+  "keywords": ["herdr", "hunk", "leaf", "terraform", "viewer"]
+}

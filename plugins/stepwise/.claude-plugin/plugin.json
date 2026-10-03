@@ -1,0 +1,10 @@
+{
+  "name": "stepwise",
+  "description": "手順を 1 件ずつ、ユーザーの承認を得てから進めるための skill",
+  "version": "0.1.0",
+  "author": {
+    "name": "k1981"
+  },
+  "license": "MIT",
+  "keywords": ["workflow", "approval", "step-by-step"]
+}
