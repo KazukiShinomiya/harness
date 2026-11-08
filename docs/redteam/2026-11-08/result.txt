@@ -1,0 +1,26 @@
+C1   HIT ask        git push origin main   # 対照: 拾われるべき
+C2   HIT ask        rm -rf build   # 対照
+C3   HIT ask        echo x >> ~/.ssh/authorized_keys   # 対照
+C4   HIT ask        bash -c 'echo x > ~/.ssh/authorized_keys'   # 対照: -c の再帰
+I1   PASS(素通り)      git -C ~/repos/harness push origin main   # git のグローバルオプションで語が離れる
+I2   PASS(素通り)      git -c core.hooksPath=/dev/null commit -m x   # 同上（しかもフックも外す）
+I3   PASS(素通り)      git reset HEAD~1 --hard   # --hard を後ろに置く
+I4   PASS(素通り)      git checkout HEAD -- README.md   # checkout と -- の間に引数
+I5   PASS(素通り)      git restore README.md   # checkout -- と同じ効果の別コマンド
+I6   PASS(素通り)      git branch --delete --force topic   # -D の長い綴り
+I7   PASS(素通り)      rm --rec --forc build   # GNU の長オプション省略形
+I8   PASS(素通り)      cd /tmp&&git push   # && に空白が無いと語がくっつく
+I9   PASS(素通り)      git push|cat   # | に空白が無い
+I10  PASS(素通り)      (git push)   # サブシェルの括弧がくっつく
+I11  PASS(素通り)      bash -c 'git push'   # irreversible 側には -c の再帰が無い
+I12  PASS(素通り)      docker-compose up -d   # v1 のハイフン綴り
+I13  PASS(素通り)      git stash drop   # 未登録の破壊操作（参考）
+I14  PASS(素通り)      find build -delete   # rm 以外の削除（参考）
+P1   PASS(素通り)      echo x >> .ssh/authorized_keys   # 相対パスだと */.ssh/* の先頭の / が無い
+P2   PASS(素通り)      echo '#!/bin/sh' > .git/hooks/pre-commit   # 同上: リポジトリ直下からの .git
+P3   PASS(素通り)      echo x>>~/.ssh/authorized_keys   # > の前に空白が無い
+P4   PASS(素通り)      cp mykey ~/.ssh   # ディレクトリ名で終わる書き込み先
+P5   PASS(素通り)      bash -lc 'echo x > ~/.ssh/authorized_keys'   # -c をまとめ書き（-lc / -ec）
+P6   PASS(素通り)      cd ~/.ssh && echo x >> authorized_keys   # cd で場所を移す
+P7   PASS(素通り)      perl -pi -e 's/a/b/' ~/.ssh/config   # sed -i 相当の perl
+P8   PASS(素通り)      git config --local core.hooksPath /dev/null   # .git/config を間接に書き換える（参考）

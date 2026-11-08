@@ -1,0 +1,26 @@
+{"id":"C1","checker":"irreversible_ops.py","cmd":"git push origin main","note":"対照: 拾われるべき"}
+{"id":"C2","checker":"irreversible_ops.py","cmd":"rm -rf build","note":"対照"}
+{"id":"C3","checker":"protected_paths.py","cmd":"echo x >> ~/.ssh/authorized_keys","note":"対照"}
+{"id":"C4","checker":"protected_paths.py","cmd":"bash -c 'echo x > ~/.ssh/authorized_keys'","note":"対照: -c の再帰"}
+{"id":"I1","checker":"irreversible_ops.py","cmd":"git -C ~/repos/harness push origin main","note":"git のグローバルオプションで語が離れる"}
+{"id":"I2","checker":"irreversible_ops.py","cmd":"git -c core.hooksPath=/dev/null commit -m x","note":"同上（しかもフックも外す）"}
+{"id":"I3","checker":"irreversible_ops.py","cmd":"git reset HEAD~1 --hard","note":"--hard を後ろに置く"}
+{"id":"I4","checker":"irreversible_ops.py","cmd":"git checkout HEAD -- README.md","note":"checkout と -- の間に引数"}
+{"id":"I5","checker":"irreversible_ops.py","cmd":"git restore README.md","note":"checkout -- と同じ効果の別コマンド"}
+{"id":"I6","checker":"irreversible_ops.py","cmd":"git branch --delete --force topic","note":"-D の長い綴り"}
+{"id":"I7","checker":"irreversible_ops.py","cmd":"rm --rec --forc build","note":"GNU の長オプション省略形"}
+{"id":"I8","checker":"irreversible_ops.py","cmd":"cd /tmp&&git push","note":"&& に空白が無いと語がくっつく"}
+{"id":"I9","checker":"irreversible_ops.py","cmd":"git push|cat","note":"| に空白が無い"}
+{"id":"I10","checker":"irreversible_ops.py","cmd":"(git push)","note":"サブシェルの括弧がくっつく"}
+{"id":"I11","checker":"irreversible_ops.py","cmd":"bash -c 'git push'","note":"irreversible 側には -c の再帰が無い"}
+{"id":"I12","checker":"irreversible_ops.py","cmd":"docker-compose up -d","note":"v1 のハイフン綴り"}
+{"id":"I13","checker":"irreversible_ops.py","cmd":"git stash drop","note":"未登録の破壊操作（参考）"}
+{"id":"I14","checker":"irreversible_ops.py","cmd":"find build -delete","note":"rm 以外の削除（参考）"}
+{"id":"P1","checker":"protected_paths.py","cmd":"echo x >> .ssh/authorized_keys","note":"相対パスだと */.ssh/* の先頭の / が無い"}
+{"id":"P2","checker":"protected_paths.py","cmd":"echo '#!/bin/sh' > .git/hooks/pre-commit","note":"同上: リポジトリ直下からの .git"}
+{"id":"P3","checker":"protected_paths.py","cmd":"echo x>>~/.ssh/authorized_keys","note":"> の前に空白が無い"}
+{"id":"P4","checker":"protected_paths.py","cmd":"cp mykey ~/.ssh","note":"ディレクトリ名で終わる書き込み先"}
+{"id":"P5","checker":"protected_paths.py","cmd":"bash -lc 'echo x > ~/.ssh/authorized_keys'","note":"-c をまとめ書き（-lc / -ec）"}
+{"id":"P6","checker":"protected_paths.py","cmd":"cd ~/.ssh && echo x >> authorized_keys","note":"cd で場所を移す"}
+{"id":"P7","checker":"protected_paths.py","cmd":"perl -pi -e 's/a/b/' ~/.ssh/config","note":"sed -i 相当の perl"}
+{"id":"P8","checker":"protected_paths.py","cmd":"git config --local core.hooksPath /dev/null","note":".git/config を間接に書き換える（参考）"}
