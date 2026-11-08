@@ -6,7 +6,7 @@
 | ディレクトリ / ファイル | 層 | 効く範囲 |
 |---|---|---|
 | `install.sh` | 導入 | マーケットプレイス登録とプラグイン導入を包んだだけのもの |
-| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（112 項目、副作用なし） |
+| `tests/run.sh` | 回帰テスト | 全層をまとめて確認（184 項目、副作用なし） |
 | `plugins/` | Claude Code プラグイン | 動的判定とチーム配布。`deny` は効くが `ask` は環境依存 |
 | `permissions/` | Claude Code の `permissions.deny` | 宣言的で確実。コマンド名単位の粗い粒度 |
 | `githooks/` | 素の git フック | **Claude Code 非依存。** 引数レベルの判定が得意 |
@@ -55,7 +55,7 @@ tests/run.sh
 ```
 
 判定器・`guard.sh` の fail-safe・両プラグインの自己診断・`permissions/apply.py`・git 層を
-まとめて確かめる（112 項目）。失敗があれば非 0 で終了する。
+まとめて確かめる（184 項目）。失敗があれば非 0 で終了する。
 
 自己診断のテストは `HOME` / `PATH` / `GIT_CONFIG_GLOBAL` を隔離した値に差し替えて走る。
 四層の診断は環境そのものを読むため、そうしないとこのマシンの導入状況で結果が変わってしまう。
@@ -677,6 +677,41 @@ Claude Code のプラグインが `settings.json` で供給できるのは `agen
 `echo "git push はまだしない"` のように引用符の中にパターンが現れるだけの文字列で発火させないため。
 コマンドが解釈できない（クォート不整合など）場合は例外を上げて非 0 で終了し、`guard.sh` が `ask` に倒す。
 
+#### 単純コマンドに分けてから、意味で判定する（2026-11-08）
+
+以前はコマンド全体を一列の語にし、`"git push"` のような**隣り合う語の並び**で照合していた。
+穴探しをしたところ、**既知の穴の外に 22 件の素通り**が見つかった（`docs/redteam/2026-11-08/`）。
+
+- 語が離れる: `git -C dir push`、`git reset HEAD~1 --hard`、`git checkout HEAD -- f`
+- 区切りに空白が無い: `cd x&&git push`、`git push|cat`、`(git push)`
+- `bash -c 'git push'`（protected_paths にはあった再帰が、こちらには無かった）
+- **`git -c core.hooksPath=/dev/null commit`**。プラグインの層と git 層を同時に抜けられた
+
+そこで、両方の判定器が共通の `_shell.py` を使うようにした。
+
+1. `shlex` の `punctuation_chars` で、`&&` `|` `;` `(` 改行とリダイレクト記号を独立した語に切り出す
+2. 区切りで単純コマンドに分ける。`bash -c`（`-lc` などのまとめ書きを含む）/ `eval` /
+   `$(...)` / バッククォートの中身も、同じように分けて並べる（3 段まで）
+3. git はグローバルオプション（`-C` `-c` `--git-dir` など）を飛ばし、サブコマンドと引数で判定する。
+   `-c core.hooksPath` や `git config core.hooksPath`（読むだけのものは除く）は、git 層を外す操作として拾う
+
+あわせて、`git restore`、`git stash drop/clear`、`git checkout .` / `-f`、`git branch --delete --force`、
+`rm --rec` のような GNU の省略形、`find -delete`、`docker-compose up` も拾うようにした。
+回帰テストは `tests/guardrails-cases.jsonl` にある。拾うべき 48 件に加えて、**読むだけの操作で
+確認を出さないこと**の 24 件も固定してある。直したことで確認だらけになっては本末転倒だからだ。
+
+修正の後で、Codex（OpenAI）に二度レビューさせた（`docs/redteam/2026-11-08/`）。挙がった 17 件は、判定器に流すとすべて本当だった。
+一度目は、修正後も残っていた `printf x;> file`（`;>` が一つの語にまとまる）を見つけた。二度目で足したのは
+`git gc --prune` / `git prune`、`git reflog expire`、`git tag -d`、`docker compose down --volumes`、保護パスへの `touch` / `mkdir` だ。
+
+**意図して残している振る舞い**（どれもテストで固定してある）:
+
+- `echo git push` や `grep git push .` でも確認が出る。git は語の位置を問わず探す。先頭の語だけを見ると、
+  `timeout 10 git push` のような前置きを一つずつ覚えさせることになり、覚え漏れが素通りになる
+- `cp .env /tmp/x` のように、コピー元が保護パスでも確認が出る。秘密情報を持ち出すときに一拍置ける
+- `git config --local user.name ...` は拾わない。`.git/config` への書き込みだが、日常的すぎる。
+  危ない `core.hooksPath` だけを拾う
+
 #### ただし rm は綴りでは照合しない
 
 当初は `"rm -rf"` `"rm -r"` `"rm -f"` を literal で並べていた。**`rm -fr` が素通りしていた**（実測）。
@@ -702,9 +737,14 @@ Claude Code のプラグインが `settings.json` で供給できるのは `agen
 
 | 拾うもの | 例 |
 |---|---|
-| リダイレクト先 | `> .env` / `>>.env` / `2> .env` / `&> .env` / `exec 3> .env` |
-| 書き込むと分かっているコマンドの引数 | `tee` `cp` `mv` `install` `ln` `truncate` `dd`（`of=`）`sed -i` |
-| サブシェルの中身（再帰・3 段まで） | `bash -c '…'` / `sh` `zsh` `dash` `ksh` の `-c` / `eval '…'` |
+| リダイレクト先 | `> .env` / `>>.env` / `x>>.env` / `2> .env` / `&> .env` / `exec 3> .env` |
+| 書き込むと分かっているコマンドの引数 | `tee` `cp` `mv` `install` `ln` `truncate` `dd`（`of=`）`sed -i` `perl -pi` |
+| サブシェルの中身（再帰・3 段まで） | `bash -c '…'`（`-lc` `-ec` も）/ `sh` `zsh` `dash` `ksh` の `-c` / `eval '…'` / `$(…)` / バッククォート |
+
+パスは、フック入力の `cwd` を使って絶対パスにしてから照合する。`cd` は、後に続くコマンドの
+cwd として追う。以前は書かれたままのパスを照合していたので、`.ssh/authorized_keys` や
+`.git/hooks/pre-commit` のような相対パスは `*/.ssh/*` に一致せず素通りしていた。
+書き込み先がディレクトリ名で終わる場合（`cp key ~/.ssh`）も拾う。
 
 **読み取りは対象にしない。** `cat .env` まで拾うと日常操作が確認だらけになり、やがて
 誰も読まなくなる。この層の目的は書き込む前に一拍置くこと。

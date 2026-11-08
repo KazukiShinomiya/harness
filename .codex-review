@@ -1,0 +1,4 @@
+# Codex（OpenAI）にレビューさせてよいか。決めるのは人間（2026-11-08、ユーザーが承認）。
+# 書式と方針: ~/repos/dotfiles/bin/codex-review の先頭
+mode = "allow"
+exclude = []

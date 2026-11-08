@@ -1,0 +1,72 @@
+{"id": "C1", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git push origin main", "note": "対照: 拾われるべき"}
+{"id": "C2", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "rm -rf build", "note": "対照"}
+{"id": "C3", "expect": "hit", "checker": "protected_paths.py", "cmd": "echo x >> ~/.ssh/authorized_keys", "note": "対照"}
+{"id": "C4", "expect": "hit", "checker": "protected_paths.py", "cmd": "bash -c 'echo x > ~/.ssh/authorized_keys'", "note": "対照: -c の再帰"}
+{"id": "I1", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git -C ~/repos/harness push origin main", "note": "git のグローバルオプションで語が離れる"}
+{"id": "I2", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git -c core.hooksPath=/dev/null commit -m x", "note": "同上（しかもフックも外す）"}
+{"id": "I3", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git reset HEAD~1 --hard", "note": "--hard を後ろに置く"}
+{"id": "I4", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git checkout HEAD -- README.md", "note": "checkout と -- の間に引数"}
+{"id": "I5", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git restore README.md", "note": "checkout -- と同じ効果の別コマンド"}
+{"id": "I6", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git branch --delete --force topic", "note": "-D の長い綴り"}
+{"id": "I7", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "rm --rec --forc build", "note": "GNU の長オプション省略形"}
+{"id": "I8", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "cd /tmp&&git push", "note": "&& に空白が無いと語がくっつく"}
+{"id": "I9", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git push|cat", "note": "| に空白が無い"}
+{"id": "I10", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "(git push)", "note": "サブシェルの括弧がくっつく"}
+{"id": "I11", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "bash -c 'git push'", "note": "irreversible 側には -c の再帰が無い"}
+{"id": "I12", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "docker-compose up -d", "note": "v1 のハイフン綴り"}
+{"id": "I13", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git stash drop", "note": "未登録の破壊操作（参考）"}
+{"id": "I14", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "find build -delete", "note": "rm 以外の削除（参考）"}
+{"id": "P1", "expect": "hit", "checker": "protected_paths.py", "cmd": "echo x >> .ssh/authorized_keys", "note": "相対パスだと */.ssh/* の先頭の / が無い"}
+{"id": "P2", "expect": "hit", "checker": "protected_paths.py", "cmd": "echo '#!/bin/sh' > .git/hooks/pre-commit", "note": "同上: リポジトリ直下からの .git"}
+{"id": "P3", "expect": "hit", "checker": "protected_paths.py", "cmd": "echo x>>~/.ssh/authorized_keys", "note": "> の前に空白が無い"}
+{"id": "P4", "expect": "hit", "checker": "protected_paths.py", "cmd": "cp mykey ~/.ssh", "note": "ディレクトリ名で終わる書き込み先"}
+{"id": "P5", "expect": "hit", "checker": "protected_paths.py", "cmd": "bash -lc 'echo x > ~/.ssh/authorized_keys'", "note": "-c をまとめ書き（-lc / -ec）"}
+{"id": "P6", "expect": "hit", "checker": "protected_paths.py", "cmd": "cd ~/.ssh && echo x >> authorized_keys", "note": "cd で場所を移す"}
+{"id": "P7", "expect": "hit", "checker": "protected_paths.py", "cmd": "perl -pi -e 's/a/b/' ~/.ssh/config", "note": "sed -i 相当の perl"}
+{"id": "P8b", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git config --local core.hooksPath /dev/null", "note": "P8 を irreversible 側で見る: 拾われるべき"}
+{"id": "N1", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git status && git log --oneline -5", "note": "誤検出なし: 読むだけ"}
+{"id": "N2", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git -C ~/repos/harness diff --stat", "note": "誤検出なし: -C 付きの読むだけ"}
+{"id": "N3", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git config --get core.hooksPath", "note": "誤検出なし: 設定を読むだけ"}
+{"id": "N4", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git restore --staged README.md", "note": "誤検出なし: ステージを外すだけ"}
+{"id": "N5", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git branch -d topic", "note": "誤検出なし: マージ済みの削除"}
+{"id": "N6", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git checkout main", "note": "誤検出なし: 切り替えだけ"}
+{"id": "N7", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "grep -rn push . | head", "note": "誤検出なし"}
+{"id": "N8", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "find . -name '*.py' -newer x", "note": "誤検出なし: -delete が無い"}
+{"id": "N9", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "docker compose ps", "note": "誤検出なし"}
+{"id": "N10", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "echo \"git push はまだしない\"", "note": "誤検出なし: 引用符の中"}
+{"id": "N11", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git stash list", "note": "誤検出なし"}
+{"id": "N12", "expect": "pass", "checker": "protected_paths.py", "cmd": "ls -la ~/.ssh 2>/dev/null", "note": "誤検出なし: 読むだけ"}
+{"id": "N13", "expect": "pass", "checker": "protected_paths.py", "cmd": "sed -n 1p .env", "note": "誤検出なし: sed でも -i が無ければ読むだけ"}
+{"id": "N14", "expect": "pass", "checker": "protected_paths.py", "cmd": "echo \"$(date)\" > /tmp/stamp.txt", "note": "誤検出なし"}
+{"id": "N15", "expect": "pass", "checker": "protected_paths.py", "cmd": "cat <<EOF > /tmp/note.txt\nhello\nEOF", "note": "誤検出なし: ヒアドキュメント"}
+{"id": "N16", "expect": "pass", "checker": "protected_paths.py", "cmd": "bash -o pipefail -c 'make 2>&1 | tee /tmp/build.log'", "note": "誤検出なし: -o の引数を飛ばす"}
+{"id": "N17", "expect": "pass", "checker": "protected_paths.py", "cmd": "perl -ne 'print' ~/.ssh/config", "note": "誤検出なし: perl でも -i が無ければ読むだけ"}
+{"id": "N18", "expect": "hit", "checker": "protected_paths.py", "cmd": "bash -o pipefail -c 'echo x > ~/.ssh/authorized_keys'", "note": "-o を飛ばした先も見る: 拾われるべき"}
+{"id": "N19", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "echo `git push`", "note": "バッククォートの中: 拾われるべき"}
+{"id": "X1", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git -C repo reset --hard", "note": "Codex のレビューで判明（2026-11-08）"}
+{"id": "X2", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git -c advice.detachedHead=false clean -fd", "note": "Codex のレビューで判明（2026-11-08）"}
+{"id": "X3", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git restore --worktree --source=HEAD -- secret.txt", "note": "Codex のレビューで判明（2026-11-08）"}
+{"id": "X4", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git stash clear", "note": "Codex のレビューで判明（2026-11-08）"}
+{"id": "X5", "expect": "hit", "checker": "protected_paths.py", "cmd": "printf x;> ~/.ssh/authorized_keys", "note": "Codex のレビューで判明（2026-11-08）"}
+{"id": "X6", "expect": "hit", "checker": "protected_paths.py", "cmd": "echo x > .git/config", "note": "Codex のレビューで判明（2026-11-08）"}
+{"id": "N20", "expect": "pass", "checker": "protected_paths.py", "cmd": "echo done;ls -la>/tmp/listing.txt", "note": "誤検出なし: 記号の切り直し後も通常のパスは素通し"}
+{"id": "Y1", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git gc --prune=now", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Y2", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git reflog expire --expire=now --all", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Y3", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "docker compose down --volumes", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Y4", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git tag -d release-1", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Y5", "expect": "pass", "checker": "protected_paths.py", "cmd": "git config --local user.name Alice", "note": "Codex のレビュー 2 回目（2026-11-08）：意図して素通し"}
+{"id": "Y6", "expect": "hit", "checker": "protected_paths.py", "cmd": "touch .env", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Y7", "expect": "hit", "checker": "protected_paths.py", "cmd": "mkdir -p ~/.ssh/newdir", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Z1", "expect": "hit", "checker": "protected_paths.py", "cmd": "cp .env /tmp/env-copy", "note": "Codex のレビュー 2 回目（2026-11-08）：意図して拾う"}
+{"id": "Z2", "expect": "hit", "checker": "protected_paths.py", "cmd": "dd if=.env of=/tmp/env-copy", "note": "Codex のレビュー 2 回目（2026-11-08）：意図して拾う"}
+{"id": "Z3", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "echo git push", "note": "Codex のレビュー 2 回目（2026-11-08）：意図して拾う"}
+{"id": "Z4", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "grep git push .", "note": "Codex のレビュー 2 回目（2026-11-08）：意図して拾う"}
+{"id": "Y8", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "git prune", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "Y9", "expect": "hit", "checker": "irreversible_ops.py", "cmd": "docker-compose down -v", "note": "Codex のレビュー 2 回目（2026-11-08）"}
+{"id": "N21", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git gc", "note": "Codex のレビュー 2 回目（2026-11-08）：誤検出なし: --prune 無し"}
+{"id": "N22", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "docker compose down", "note": "Codex のレビュー 2 回目（2026-11-08）：誤検出なし: ボリュームを残す"}
+{"id": "N23", "expect": "pass", "checker": "irreversible_ops.py", "cmd": "git tag -l && git reflog", "note": "Codex のレビュー 2 回目（2026-11-08）：誤検出なし: 読むだけ"}
+{"id": "N24", "expect": "pass", "checker": "protected_paths.py", "cmd": "mkdir -p /tmp/build && touch /tmp/build/stamp", "note": "Codex のレビュー 2 回目（2026-11-08）：誤検出なし: 保護パスの外"}
+{"id": "M1", "expect": "hit", "checker": "protected_paths.py", "cmd": "printf 'mode = \"allow\"\\n' > .codex-review", "note": "Codex レビューの分類は人間が決める（2026-11-08）"}
+{"id": "M2", "expect": "hit", "checker": "protected_paths.py", "cmd": "sed -i s/deny/allow/ ~/repos/home_env/.codex-review", "note": "同上: deny を allow に書き換える"}
+{"id": "N25", "expect": "pass", "checker": "protected_paths.py", "cmd": "cat .codex-review", "note": "誤検出なし: 目印を読むだけ"}

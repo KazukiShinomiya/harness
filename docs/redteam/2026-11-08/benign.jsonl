@@ -1,0 +1,20 @@
+{"id":"P8b","checker":"irreversible_ops.py","cmd":"git config --local core.hooksPath /dev/null","note":"P8 を irreversible 側で見る: 拾われるべき"}
+{"id":"N1","checker":"irreversible_ops.py","cmd":"git status && git log --oneline -5","note":"誤検出なし: 読むだけ"}
+{"id":"N2","checker":"irreversible_ops.py","cmd":"git -C ~/repos/harness diff --stat","note":"誤検出なし: -C 付きの読むだけ"}
+{"id":"N3","checker":"irreversible_ops.py","cmd":"git config --get core.hooksPath","note":"誤検出なし: 設定を読むだけ"}
+{"id":"N4","checker":"irreversible_ops.py","cmd":"git restore --staged README.md","note":"誤検出なし: ステージを外すだけ"}
+{"id":"N5","checker":"irreversible_ops.py","cmd":"git branch -d topic","note":"誤検出なし: マージ済みの削除"}
+{"id":"N6","checker":"irreversible_ops.py","cmd":"git checkout main","note":"誤検出なし: 切り替えだけ"}
+{"id":"N7","checker":"irreversible_ops.py","cmd":"grep -rn push . | head","note":"誤検出なし"}
+{"id":"N8","checker":"irreversible_ops.py","cmd":"find . -name '*.py' -newer x","note":"誤検出なし: -delete が無い"}
+{"id":"N9","checker":"irreversible_ops.py","cmd":"docker compose ps","note":"誤検出なし"}
+{"id":"N10","checker":"irreversible_ops.py","cmd":"echo \"git push はまだしない\"","note":"誤検出なし: 引用符の中"}
+{"id":"N11","checker":"irreversible_ops.py","cmd":"git stash list","note":"誤検出なし"}
+{"id":"N12","checker":"protected_paths.py","cmd":"ls -la ~/.ssh 2>/dev/null","note":"誤検出なし: 読むだけ"}
+{"id":"N13","checker":"protected_paths.py","cmd":"sed -n 1p .env","note":"誤検出なし: sed でも -i が無ければ読むだけ"}
+{"id":"N14","checker":"protected_paths.py","cmd":"echo \"$(date)\" > /tmp/stamp.txt","note":"誤検出なし"}
+{"id":"N15","checker":"protected_paths.py","cmd":"cat <<EOF > /tmp/note.txt\nhello\nEOF","note":"誤検出なし: ヒアドキュメント"}
+{"id":"N16","checker":"protected_paths.py","cmd":"bash -o pipefail -c 'make 2>&1 | tee /tmp/build.log'","note":"誤検出なし: -o の引数を飛ばす"}
+{"id":"N17","checker":"protected_paths.py","cmd":"perl -ne 'print' ~/.ssh/config","note":"誤検出なし: perl でも -i が無ければ読むだけ"}
+{"id":"N18","checker":"protected_paths.py","cmd":"bash -o pipefail -c 'echo x > ~/.ssh/authorized_keys'","note":"-o を飛ばした先も見る: 拾われるべき"}
+{"id":"N19","checker":"irreversible_ops.py","cmd":"echo `git push`","note":"バッククォートの中: 拾われるべき"}

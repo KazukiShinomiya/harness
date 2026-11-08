@@ -192,6 +192,27 @@ empty 'ファイル記述子をパスと誤解しない' "$out"
 out=$(judge protected_paths.py '{"tool_input":{"command":"echo hi > /tmp/plain.txt"}}')
 empty '通常のリダイレクトは素通しする' "$out"
 
+# --- 2026-11-08 の穴探しで見つけた素通りと、直したことで誤検出を増やしていないか ---
+# 以前はコマンド全体を一列の語にして「隣り合う語」で照合していたので、`git -C dir push`、
+# `cd x&&git push`、相対パスの `.ssh/...`、`bash -lc` などで抜けられた（22 件を実測）。
+# 経緯と修正前の結果は docs/redteam/2026-11-08/ にある。検体は tests/guardrails-cases.jsonl。
+# expect=hit は拾うこと、expect=pass は素通しすること（読むだけの操作で確認を出さない）。
+while IFS='	' read -r case_id expect checker payload; do
+	out=$(judge "$checker" "$payload")
+	if [ "$expect" = hit ]; then
+		contains "穴探し $case_id を拾う" '"permissionDecision"' "$out"
+	else
+		empty "穴探し $case_id で誤検出しない" "$out"
+	fi
+done <<EOF
+$(python3 -c '
+import json, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    c = json.loads(line)
+    print(c["id"], c["expect"], c["checker"], json.dumps({"tool_input": {"command": c["cmd"]}}), sep="\t")
+' "$ROOT/tests/guardrails-cases.jsonl")
+EOF
+
 # ---------------------------------------------------------------- userConfig
 section 'userConfig（multiple の直列化）'
 
